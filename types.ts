@@ -1,37 +1,4 @@
 
-export interface BloodMarker {
-  id: string;
-  name: string;
-  shortName: string;
-  unit: string;
-  minRef: number;
-  maxRef: number;
-  category: string;
-  description: string;
-  displayMin: number; // For graph axis scaling visual
-  displayMax: number; // For graph axis scaling visual
-}
-
-export interface Measurement {
-  id: string;
-  markerId: string;
-  value: number;
-  date: string;
-  note?: string; // optional measurement context
-}
-
-export interface MarkerNote {
-  id: string;
-  markerId: string;
-  note: string;
-  date: string; // created_at or local timestamp
-}
-
-export type HealthStatus = 'low' | 'normal' | 'high';
-
-/**
- * Fokusområden / organ-system (biohacking “attention map”)
- */
 export type FocusAreaId =
   | 'cardiovascular'
   | 'metabolic'
@@ -45,15 +12,47 @@ export type FocusAreaId =
   | 'electrolytes'
   | 'other';
 
-export interface MarkerGoal {
+export interface BloodMarker {
+  id: string;
+  name: string;
+  shortName: string;
+  unit: string;
+  minRef: number;
+  maxRef: number;
+  category: string;
+  description: string;
+  displayMin: number;
+  displayMax: number;
+  goal?: {
+    targetMin: number;
+    targetMax: number;
+  };
+}
+
+export type HealthStatus = 'low' | 'normal' | 'high';
+
+export interface Measurement {
+  id: string;
   markerId: string;
-  targetMin?: number;
-  targetMax?: number;
-  targetDate?: string; // YYYY-MM-DD (optional)
-  plan?: string; // protocol / hypothesis / plan
-  note?: string; // user notes on the goal
-  createdAt?: string; // ISO timestamp
-  updatedAt: string; // ISO timestamp
+  value: number;
+  date: string;
+  note?: string | null; // anteckning per mätning (measurements.note)
+}
+
+export interface MarkerNote {
+  id: string;
+  markerId: string;
+  note: string;
+  date: string; // created_at
+}
+
+export interface MeasurementTodo {
+  id: string;
+  measurementId: string;
+  task: string;
+  done: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface MarkerHistory extends BloodMarker {
@@ -61,9 +60,6 @@ export interface MarkerHistory extends BloodMarker {
   notes: MarkerNote[];
   latestMeasurement: Measurement | undefined;
   status: HealthStatus;
-
-  focusAreas: FocusAreaId[]; // computed client-side
-  goal?: MarkerGoal | null; // stored locally per user
 }
 
 export interface OptimizationEvent {

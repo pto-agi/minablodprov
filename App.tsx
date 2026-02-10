@@ -1,5 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { MarkerHistory, Measurement, BloodMarker, OptimizationEvent, MarkerNote } from './types';
+import {
+  MarkerHistory,
+  Measurement,
+  BloodMarker,
+  OptimizationEvent,
+  MarkerNote,
+  MeasurementTodo,
+} from './types';
 import { getStatus } from './utils';
 import BloodMarkerCard from './components/BloodMarkerCard';
 import DetailView from './components/DetailView';
@@ -7,18 +14,9 @@ import NewMeasurementModal from './components/NewMeasurementModal';
 import StatsOverview from './components/StatsOverview';
 import OptimizedListModal from './components/OptimizedListModal';
 import Auth from './components/Auth';
-import LandingPage from './components/LandingPage'; // <-- skapa denna komponent
+import LandingPage from './components/LandingPage';
 import { supabase } from './supabaseClient';
 import { Session } from '@supabase/supabase-js';
-
-/**
- * Designmål (biohacker + premium + pro-UX):
- * - “Lab glow” bakgrund (subtila gradienter), frostad header, ring/shadow för exklusiv känsla.
- * - Pro-kontroller: sök (Cmd/Ctrl+K), filter (alla/avvikande/inom ref), sort (viktigast/senast/A-Ö).
- * - Kategorier auto-expanderar om något behöver åtgärd (problem först).
- * - Realtime sync (Supabase postgres_changes) för “marknadsledande” känsla.
- * - Notes per markör (marker_notes) + fallback localStorage om tabellen saknas.
- */
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 
@@ -40,18 +38,10 @@ const formatDateTimeSv = (iso?: string | null) => {
 };
 
 const statusRank = (status: string | undefined) => {
-  // Lower = more urgent
   switch ((status ?? '').toLowerCase()) {
-    case 'critical':
-    case 'very_high':
-    case 'very_low':
-      return 0;
     case 'high':
     case 'low':
       return 1;
-    case 'borderline':
-    case 'warning':
-      return 2;
     case 'normal':
       return 4;
     default:
@@ -59,46 +49,12 @@ const statusRank = (status: string | undefined) => {
   }
 };
 
-// --------------------
-// Local fallback notes
-// --------------------
-const notesKey = (userId: string) => `hj:marker_notes:v1:${userId}`;
-
-const loadLocalNotes = (userId: string): MarkerNote[] => {
-  try {
-    const raw = localStorage.getItem(notesKey(userId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((n: any) => ({
-        id: String(n.id ?? ''),
-        markerId: String(n.markerId ?? n.marker_id ?? ''),
-        note: String(n.note ?? ''),
-        date: String(n.date ?? n.created_at ?? ''),
-      }))
-      .filter((n: MarkerNote) => n.id && n.markerId && n.note);
-  } catch {
-    return [];
-  }
-};
-
-const saveLocalNotes = (userId: string, notes: MarkerNote[]) => {
-  try {
-    localStorage.setItem(notesKey(userId), JSON.stringify(notes));
-  } catch {
-    // ignore
-  }
-};
-
-// --- Sub-component for the Category Accordion ---
-interface CategoryGroupProps {
+// --- Category accordion ---
+const CategoryGroup: React.FC<{
   title: string;
   markers: MarkerHistory[];
   onSelectMarker: (id: string) => void;
-}
-
-const CategoryGroup: React.FC<CategoryGroupProps> = ({ title, markers, onSelectMarker }) => {
+}> = ({ title, markers, onSelectMarker }) => {
   const total = markers.length;
   const normalCount = markers.filter((m) => m.status === 'normal').length;
   const isAllNormal = total > 0 && normalCount === total;
@@ -106,9 +62,7 @@ const CategoryGroup: React.FC<CategoryGroupProps> = ({ title, markers, onSelectM
   const initialOpen = useMemo(() => !isAllNormal, [isAllNormal]);
   const [isOpen, setIsOpen] = useState<boolean>(initialOpen);
 
-  useEffect(() => {
-    setIsOpen(initialOpen);
-  }, [initialOpen]);
+  useEffect(() => setIsOpen(initialOpen), [initialOpen]);
 
   const ratio = total === 0 ? 0 : normalCount / total;
 
@@ -119,8 +73,7 @@ const CategoryGroup: React.FC<CategoryGroupProps> = ({ title, markers, onSelectM
         aria-expanded={isOpen}
         className={cx(
           'w-full flex items-center justify-between rounded-3xl p-5 transition-all active:scale-[0.99] relative',
-          'bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm',
-          'hover:bg-white',
+          'bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm hover:bg-white',
         )}
       >
         <div className="min-w-0 flex-1">
@@ -137,9 +90,7 @@ const CategoryGroup: React.FC<CategoryGroupProps> = ({ title, markers, onSelectM
               {normalCount}/{total} inom ref
             </div>
 
-            {!isAllNormal && (
-              <div className="text-xs font-semibold text-slate-500">{total - normalCount} behöver åtgärd</div>
-            )}
+            {!isAllNormal && <div className="text-xs font-semibold text-slate-500">{total - normalCount} behöver åtgärd</div>}
           </div>
 
           <div className="mt-3">
@@ -165,12 +116,7 @@ const CategoryGroup: React.FC<CategoryGroupProps> = ({ title, markers, onSelectM
         </div>
       </button>
 
-      <div
-        className={cx(
-          'grid transition-all duration-300 ease-in-out',
-          isOpen ? 'grid-rows-[1fr] opacity-100 mt-3' : 'grid-rows-[0fr] opacity-0 mt-0',
-        )}
-      >
+      <div className={cx('grid transition-all duration-300 ease-in-out', isOpen ? 'grid-rows-[1fr] opacity-100 mt-3' : 'grid-rows-[0fr] opacity-0 mt-0')}>
         <div className="overflow-hidden">
           <div className="flex flex-col gap-3 px-1 pb-2">
             {markers.map((marker) => (
@@ -184,45 +130,42 @@ const CategoryGroup: React.FC<CategoryGroupProps> = ({ title, markers, onSelectM
 };
 
 const App: React.FC = () => {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loadingSession, setLoadingSession] = useState(true);
-
-  // Landing -> Auth
+  // Landing -> Auth flow
   const [showAuth, setShowAuth] = useState(false);
 
+  const [session, setSession] = useState<Session | null>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [prefillMarkerId, setPrefillMarkerId] = useState<string | null>(null);
   const [isOptimizedModalOpen, setIsOptimizedModalOpen] = useState(false);
 
-  // Data States
+  // Data
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [bloodMarkers, setBloodMarkers] = useState<BloodMarker[]>([]);
   const [markerNotes, setMarkerNotes] = useState<MarkerNote[]>([]);
+  const [todos, setTodos] = useState<MeasurementTodo[]>([]);
+
   const [loadingData, setLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
 
-  // UX States
+  // UX
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [sortMode, setSortMode] = useState<SortMode>('attention');
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const userId = session?.user?.id ?? null;
-
-  // 1) Handle Authentication State
+  // Auth init
   useEffect(() => {
     const initSession = async () => {
       try {
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
-        setSession(session);
+        setSession(data.session ?? null);
       } catch (err) {
-        console.warn('Supabase initialization warning:', err);
+        console.warn('Supabase init warning:', err);
       } finally {
         setLoadingSession(false);
       }
@@ -230,20 +173,15 @@ const App: React.FC = () => {
 
     initSession();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (!session) {
-        // När man loggar ut vill vi tillbaka till landing som default
-        setShowAuth(false);
-      }
+    const { data } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
+      if (s) setShowAuth(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => data.subscription.unsubscribe();
   }, []);
 
-  // Pro shortcut: Cmd/Ctrl + K => focus search
+  // Cmd/Ctrl + K => search
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const isCmdK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k';
@@ -251,31 +189,38 @@ const App: React.FC = () => {
       e.preventDefault();
       searchRef.current?.focus();
     };
-
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // 2) Fetch Markers, Measurements & Notes
   const fetchData = useCallback(async () => {
-    if (!userId) return;
+    if (!session?.user) return;
 
     setLoadingData(true);
     setDataError(null);
 
+    const userId = session.user.id;
+    const missing: string[] = [];
+
     try {
-      const [markersRes, measurementsRes, notesRes] = await Promise.all([
+      const [markersRes, measurementsRes, notesRes, todosRes] = await Promise.all([
         supabase.from('blood_markers').select('*'),
         supabase.from('measurements').select('*').eq('user_id', userId).order('measured_at', { ascending: false }),
-        // marker_notes kan saknas (då fallbackar vi)
         supabase.from('marker_notes').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('measurement_todos').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
       ]);
 
       if (markersRes.error) throw markersRes.error;
       if (measurementsRes.error) throw measurementsRes.error;
 
+      // Notes/todos may be missing tables before SQL has run
+      if (notesRes.error) missing.push(`marker_notes (${notesRes.error.message})`);
+      if (todosRes.error) missing.push(`measurement_todos (${todosRes.error.message})`);
+
       const markersData = markersRes.data ?? [];
       const measureData = measurementsRes.data ?? [];
+      const notesData = notesRes.data ?? [];
+      const todosData = todosRes.data ?? [];
 
       const mappedMarkers: BloodMarker[] = markersData.map((m: any) => {
         const minRef = Number(m.min_ref);
@@ -306,65 +251,66 @@ const App: React.FC = () => {
         markerId: item.marker_id,
         value: Number(item.value),
         date: item.measured_at,
-        note: item.note,
+        note: item.note ?? null,
+      }));
+
+      const mappedNotes: MarkerNote[] = notesData.map((n: any) => ({
+        id: n.id,
+        markerId: n.marker_id,
+        note: n.note ?? '',
+        date: n.created_at,
+      }));
+
+      const mappedTodos: MeasurementTodo[] = todosData.map((t: any) => ({
+        id: t.id,
+        measurementId: t.measurement_id,
+        task: t.task ?? '',
+        done: Boolean(t.is_done),
+        createdAt: t.created_at,
+        updatedAt: t.updated_at,
       }));
 
       setBloodMarkers(mappedMarkers);
       setMeasurements(mappedMeasurements);
+      setMarkerNotes(missing.length ? [] : mappedNotes);
+      setTodos(missing.length ? [] : mappedTodos);
 
-      // Notes: om tabellen saknas eller policy stoppar -> fallback till local
-      if (notesRes.error) {
-        console.warn('marker_notes not available (fallback local):', notesRes.error);
-        const local = loadLocalNotes(userId);
-        setMarkerNotes(local);
-      } else {
-        const notesData = notesRes.data ?? [];
-        const mappedNotes: MarkerNote[] = notesData.map((n: any) => ({
-          id: n.id,
-          markerId: n.marker_id,
-          note: n.note,
-          date: n.created_at,
-        }));
-        setMarkerNotes(mappedNotes);
-        // Synka även till local så man aldrig tappar
-        saveLocalNotes(userId, mappedNotes);
+      if (missing.length) {
+        setDataError(
+          'DB saknar tabeller/policies för pro-funktioner.\n' +
+            'Kör SQL-migrationen (marker_notes + measurement_todos) och ladda om.\n\n' +
+            missing.join('\n'),
+        );
       }
     } catch (error: any) {
       console.error('Error fetching data:', error);
-      setDataError('Kunde inte hämta data. Kontrollera anslutningen och försök igen.');
+      setDataError('Kunde inte hämta data. Kontrollera anslutningen och att RLS/policies är korrekt.');
     } finally {
       setLoadingData(false);
     }
-  }, [userId]);
+  }, [session?.user]);
 
   useEffect(() => {
-    if (userId) fetchData();
-  }, [userId, fetchData]);
+    if (session?.user) fetchData();
+  }, [session?.user, fetchData]);
 
-  // Premium: Realtime sync (measurements + marker_notes)
+  // Realtime sync
   useEffect(() => {
-    if (!userId) return;
+    if (!session?.user) return;
+    const userId = session.user.id;
 
     const channel = supabase
-      .channel(`realtime:${userId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'measurements', filter: `user_id=eq.${userId}` },
-        () => fetchData(),
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'marker_notes', filter: `user_id=eq.${userId}` },
-        () => fetchData(),
-      )
+      .channel(`hj:realtime:${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'measurements', filter: `user_id=eq.${userId}` }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marker_notes', filter: `user_id=eq.${userId}` }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'measurement_todos', filter: `user_id=eq.${userId}` }, fetchData)
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userId, fetchData]);
+  }, [session?.user, fetchData]);
 
-  // 3) Index measurements & notes
   const measurementsByMarkerId = useMemo(() => {
     const map = new Map<string, Measurement[]>();
     for (const m of measurements) {
@@ -382,15 +328,19 @@ const App: React.FC = () => {
       if (arr) arr.push(n);
       else map.set(n.markerId, [n]);
     }
-    // sortera notes per markör nyast först
-    for (const [k, arr] of map.entries()) {
-      arr.sort((a, b) => ts(b.date) - ts(a.date));
-      map.set(k, arr);
-    }
     return map;
   }, [markerNotes]);
 
-  // 4) Process Data for Dashboard
+  const todosByMeasurementId = useMemo(() => {
+    const map = new Map<string, MeasurementTodo[]>();
+    for (const t of todos) {
+      const arr = map.get(t.measurementId);
+      if (arr) arr.push(t);
+      else map.set(t.measurementId, [t]);
+    }
+    return map;
+  }, [todos]);
+
   const dashboardData: MarkerHistory[] = useMemo(() => {
     if (bloodMarkers.length === 0) return [];
 
@@ -403,10 +353,12 @@ const App: React.FC = () => {
       markerMeasurements.sort((a, b) => ts(b.date) - ts(a.date));
       const latest = markerMeasurements[0];
 
+      const markerNotesList = [...(notesByMarkerId.get(marker.id) ?? [])].sort((a, b) => ts(b.date) - ts(a.date));
+
       out.push({
         ...marker,
         measurements: markerMeasurements,
-        notes: notesByMarkerId.get(marker.id) ?? [],
+        notes: markerNotesList,
         latestMeasurement: latest,
         status: latest ? getStatus(latest.value, marker.minRef, marker.maxRef) : 'normal',
       });
@@ -415,7 +367,6 @@ const App: React.FC = () => {
     return out;
   }, [bloodMarkers, measurementsByMarkerId, notesByMarkerId]);
 
-  // 5) Motivation Stats
   const stats = useMemo(() => {
     const optimizedEvents: OptimizationEvent[] = [];
     let toOptimizeCount = 0;
@@ -470,7 +421,6 @@ const App: React.FC = () => {
     return { total, normal, attention, lastIso };
   }, [dashboardData, measurements]);
 
-  // Filtering & sorting
   const filteredDashboardData = useMemo(() => {
     const q = query.trim().toLowerCase();
 
@@ -495,7 +445,6 @@ const App: React.FC = () => {
     } else if (sortMode === 'recent') {
       sorted.sort((a, b) => ts(b.latestMeasurement?.date) - ts(a.latestMeasurement?.date));
     } else {
-      // attention-first
       sorted.sort((a, b) => {
         const s = statusRank(a.status) - statusRank(b.status);
         if (s !== 0) return s;
@@ -531,97 +480,161 @@ const App: React.FC = () => {
     return entries;
   }, [filteredDashboardData]);
 
+  // -----------------------------
+  // Writes (DB-only)
+  // -----------------------------
   const handleSaveMeasurement = useCallback(
-    async (markerId: string, value: number, date: string) => {
-      if (!userId) return;
+    async (markerId: string, value: number, date: string, note?: string) => {
+      if (!session?.user) return;
 
-      try {
-        const { error } = await supabase.from('measurements').insert([
-          {
-            user_id: userId,
-            marker_id: markerId,
-            value,
-            measured_at: date,
-          },
-        ]);
-
-        if (error) throw error;
-        await fetchData();
-      } catch (err) {
-        console.error('Supabase Insert Error:', err);
-        alert('Kunde inte spara. Försök igen.');
-        throw err;
-      }
-    },
-    [userId, fetchData],
-  );
-
-  const handleSaveNote = useCallback(
-    async (markerId: string, note: string) => {
-      if (!userId) return;
-
-      const clean = (note ?? '').trim();
-      if (!clean) return;
-
-      // optimistic local note (för direkt UX)
-      const localNote: MarkerNote = {
-        id: `local_${Math.random().toString(16).slice(2)}`,
-        markerId,
-        note: clean,
-        date: new Date().toISOString(),
+      const payload: any = {
+        user_id: session.user.id,
+        marker_id: markerId,
+        value,
+        measured_at: date,
+        note: note?.trim() ? note.trim() : null,
       };
 
-      // direkt uppdatering UI
-      setMarkerNotes((prev) => {
-        const next = [localNote, ...prev];
-        saveLocalNotes(userId, next);
-        return next;
-      });
+      const { error } = await supabase.from('measurements').insert([payload]);
+      if (error) throw error;
 
-      try {
-        const { data, error } = await supabase
-          .from('marker_notes')
-          .insert([
-            {
-              user_id: userId,
-              marker_id: markerId,
-              note: clean,
-            },
-          ])
-          .select('*')
-          .single();
-
-        if (error) throw error;
-
-        // ersätt local note med riktig rad (om vi får tillbaka den)
-        if (data?.id) {
-          const realNote: MarkerNote = {
-            id: data.id,
-            markerId: data.marker_id,
-            note: data.note,
-            date: data.created_at,
-          };
-
-          setMarkerNotes((prev) => {
-            const withoutLocal = prev.filter((n) => n.id !== localNote.id);
-            const next = [realNote, ...withoutLocal];
-            saveLocalNotes(userId, next);
-            return next;
-          });
-        } else {
-          // om vi inte fick tillbaka rad, gör en refetch
-          fetchData();
-        }
-      } catch (e) {
-        console.warn('Could not save note to Supabase; kept locally:', e);
-        // behåll local note, men informera användaren
-        // (undvik hård alert-spam; ni kan byta till toast senare)
-        alert(
-          'Anteckningen sparades lokalt men kunde inte synkas. Kontrollera att tabellen marker_notes finns och att RLS policies tillåter insert/select.',
-        );
-      }
+      await fetchData();
     },
-    [userId, fetchData],
+    [session?.user, fetchData],
+  );
+
+  const handleCreateMarkerNote = useCallback(
+    async (markerId: string, note: string) => {
+      if (!session?.user) return;
+
+      const clean = note.trim();
+      if (!clean) return;
+
+      const { error } = await supabase.from('marker_notes').insert([
+        { user_id: session.user.id, marker_id: markerId, note: clean },
+      ]);
+      if (error) throw error;
+
+      await fetchData();
+    },
+    [session?.user, fetchData],
+  );
+
+  const handleUpdateMarkerNote = useCallback(
+    async (noteId: string, note: string) => {
+      if (!session?.user) return;
+      const clean = note.trim();
+
+      const { error } = await supabase
+        .from('marker_notes')
+        .update({ note: clean })
+        .eq('id', noteId)
+        .eq('user_id', session.user.id);
+
+      if (error) throw error;
+      await fetchData();
+    },
+    [session?.user, fetchData],
+  );
+
+  const handleDeleteMarkerNote = useCallback(
+    async (noteId: string) => {
+      if (!session?.user) return;
+
+      const { error } = await supabase
+        .from('marker_notes')
+        .delete()
+        .eq('id', noteId)
+        .eq('user_id', session.user.id);
+
+      if (error) throw error;
+      await fetchData();
+    },
+    [session?.user, fetchData],
+  );
+
+  const handleUpdateMeasurementNote = useCallback(
+    async (measurementId: string, noteOrNull: string | null) => {
+      if (!session?.user) return;
+
+      const value = noteOrNull?.trim() ? noteOrNull.trim() : null;
+
+      const { error } = await supabase
+        .from('measurements')
+        .update({ note: value })
+        .eq('id', measurementId)
+        .eq('user_id', session.user.id);
+
+      if (error) throw error;
+      await fetchData();
+    },
+    [session?.user, fetchData],
+  );
+
+  const handleAddTodo = useCallback(
+    async (measurementId: string, task: string) => {
+      if (!session?.user) return;
+      const clean = task.trim();
+      if (!clean) return;
+
+      const { error } = await supabase.from('measurement_todos').insert([
+        { user_id: session.user.id, measurement_id: measurementId, task: clean },
+      ]);
+      if (error) throw error;
+
+      await fetchData();
+    },
+    [session?.user, fetchData],
+  );
+
+  const handleToggleTodo = useCallback(
+    async (todoId: string, done: boolean) => {
+      if (!session?.user) return;
+
+      const { error } = await supabase
+        .from('measurement_todos')
+        .update({ is_done: done })
+        .eq('id', todoId)
+        .eq('user_id', session.user.id);
+
+      if (error) throw error;
+      await fetchData();
+    },
+    [session?.user, fetchData],
+  );
+
+  const handleUpdateTodo = useCallback(
+    async (todoId: string, task: string) => {
+      if (!session?.user) return;
+      const clean = task.trim();
+      if (!clean) return;
+
+      const { error } = await supabase
+        .from('measurement_todos')
+        .update({ task: clean })
+        .eq('id', todoId)
+        .eq('user_id', session.user.id);
+
+      if (error) throw error;
+      await fetchData();
+    },
+    [session?.user, fetchData],
+  );
+
+  const handleDeleteTodo = useCallback(
+    async (todoId: string) => {
+      if (!session?.user) return;
+
+      const { error } = await supabase
+        .from('measurement_todos')
+        .delete()
+        .eq('id', todoId)
+        .eq('user_id', session.user.id);
+
+      if (error) throw error;
+      await fetchData();
+    },
+    [session?.user, fetchData],
   );
 
   const handleSignOut = useCallback(async () => {
@@ -629,6 +642,7 @@ const App: React.FC = () => {
     setMeasurements([]);
     setBloodMarkers([]);
     setMarkerNotes([]);
+    setTodos([]);
     setSelectedMarkerId(null);
     setShowAuth(false);
   }, []);
@@ -637,7 +651,7 @@ const App: React.FC = () => {
     await fetchData();
   }, [fetchData]);
 
-  // --- Render Logic ---
+  // --- Render ---
   if (loadingSession) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 flex items-center justify-center">
@@ -646,7 +660,6 @@ const App: React.FC = () => {
     );
   }
 
-  // ✅ Landing -> Auth flow
   if (!session) {
     return showAuth ? (
       <Auth />
@@ -676,11 +689,26 @@ const App: React.FC = () => {
       );
     }
 
+    const latestId = selectedMarkerData.latestMeasurement?.id ?? null;
+    const todosForLatest = latestId ? (todosByMeasurementId.get(latestId) ?? []) : [];
+
     return (
       <DetailView
         data={selectedMarkerData}
         onBack={() => setSelectedMarkerId(null)}
-        onSaveNote={handleSaveNote}
+        onAddMeasurement={(markerId) => {
+          setPrefillMarkerId(markerId);
+          setIsModalOpen(true);
+        }}
+        onSaveNote={handleCreateMarkerNote}
+        onUpdateNote={handleUpdateMarkerNote}
+        onDeleteNote={handleDeleteMarkerNote}
+        onUpdateMeasurementNote={handleUpdateMeasurementNote}
+        todos={todosForLatest}
+        onAddTodo={handleAddTodo}
+        onToggleTodo={handleToggleTodo}
+        onUpdateTodo={handleUpdateTodo}
+        onDeleteTodo={handleDeleteTodo}
       />
     );
   }
@@ -690,14 +718,11 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 pb-24 relative">
-      {/* Decorative background (premium “lab glow”) */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-56 right-[-12rem] h-[32rem] w-[32rem] rounded-full bg-gradient-to-br from-emerald-200/55 to-cyan-200/35 blur-3xl" />
         <div className="absolute -bottom-56 left-[-12rem] h-[32rem] w-[32rem] rounded-full bg-gradient-to-tr from-indigo-200/45 to-violet-200/35 blur-3xl" />
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 h-48 w-[48rem] max-w-[90vw] rounded-full bg-gradient-to-r from-transparent via-slate-200/25 to-transparent blur-2xl" />
       </div>
 
-      {/* Header */}
       <header className="border-b border-slate-200/70 sticky top-0 z-30 bg-white/70 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto px-5 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3 min-w-0">
@@ -736,12 +761,7 @@ const App: React.FC = () => {
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-900" />
               ) : (
                 <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0014-7 9 9 0 00-14-7"
-                  />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0014-7 9 9 0 00-14-7" />
                 </svg>
               )}
             </button>
@@ -753,29 +773,20 @@ const App: React.FC = () => {
               aria-label="Logga ut"
             >
               <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-3xl mx-auto px-4 pt-6 relative">
-        {/* Hero / Controls */}
         <section className="mb-6 px-1">
           <div className="rounded-3xl bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-5">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div className="min-w-0">
                 <h2 className="text-2xl font-display font-bold text-slate-900 tracking-tight">Dina värden</h2>
-                <p className="text-slate-600 text-sm mt-1">
-                  Följ dina biomarkörer över tid, prioritera avvikelser och bygg en skarpare interventionsloop.
-                </p>
+                <p className="text-slate-600 text-sm mt-1">Sök, prioritera och följ upp med en tight interventionsloop.</p>
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 ring-1 ring-slate-900/5 px-3 py-1.5">
@@ -786,7 +797,6 @@ const App: React.FC = () => {
                   <button
                     onClick={() => setStatusFilter('attention')}
                     className="inline-flex items-center gap-2 rounded-full bg-amber-50 ring-1 ring-amber-900/10 px-3 py-1.5 hover:bg-amber-100 transition-colors"
-                    title="Visa bara det som behöver åtgärd"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                     <span className="text-[11px] text-amber-900 font-semibold">Behöver åtgärd</span>
@@ -796,7 +806,6 @@ const App: React.FC = () => {
                   <button
                     onClick={() => setStatusFilter('normal')}
                     className="inline-flex items-center gap-2 rounded-full bg-emerald-50 ring-1 ring-emerald-900/10 px-3 py-1.5 hover:bg-emerald-100 transition-colors"
-                    title="Visa bara inom referens"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                     <span className="text-[11px] text-emerald-900 font-semibold">Inom ref</span>
@@ -840,26 +849,15 @@ const App: React.FC = () => {
             </div>
 
             <div className="mt-5 grid gap-3">
-              {/* Search */}
               <div className="relative">
-                <svg
-                  className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
+                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
                 <input
                   ref={searchRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Sök markör (t.ex. Ferritin, HbA1c, ApoB)…  •  Cmd/Ctrl + K"
+                  placeholder="Sök markör (t.ex. Ferritin, HbA1c)…  •  Cmd/Ctrl + K"
                   className={cx(
                     'w-full rounded-2xl bg-white ring-1 ring-slate-900/10 shadow-sm',
                     'pl-10 pr-4 py-3 text-sm text-slate-900 placeholder:text-slate-400',
@@ -868,15 +866,12 @@ const App: React.FC = () => {
                 />
               </div>
 
-              {/* Filters */}
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setStatusFilter('all')}
                   className={cx(
                     'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    statusFilter === 'all'
-                      ? 'bg-slate-900 text-white ring-slate-900'
-                      : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                    statusFilter === 'all' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
                   )}
                 >
                   Alla
@@ -885,9 +880,7 @@ const App: React.FC = () => {
                   onClick={() => setStatusFilter('attention')}
                   className={cx(
                     'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    statusFilter === 'attention'
-                      ? 'bg-amber-500 text-white ring-amber-500'
-                      : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                    statusFilter === 'attention' ? 'bg-amber-500 text-white ring-amber-500' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
                   )}
                 >
                   Avvikande
@@ -896,9 +889,7 @@ const App: React.FC = () => {
                   onClick={() => setStatusFilter('normal')}
                   className={cx(
                     'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    statusFilter === 'normal'
-                      ? 'bg-emerald-600 text-white ring-emerald-600'
-                      : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                    statusFilter === 'normal' ? 'bg-emerald-600 text-white ring-emerald-600' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
                   )}
                 >
                   Inom ref
@@ -910,11 +901,8 @@ const App: React.FC = () => {
                   onClick={() => setSortMode('attention')}
                   className={cx(
                     'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    sortMode === 'attention'
-                      ? 'bg-slate-900 text-white ring-slate-900'
-                      : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                    sortMode === 'attention' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
                   )}
-                  title="Sortera: viktigast först"
                 >
                   Viktigast
                 </button>
@@ -922,11 +910,8 @@ const App: React.FC = () => {
                   onClick={() => setSortMode('recent')}
                   className={cx(
                     'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    sortMode === 'recent'
-                      ? 'bg-slate-900 text-white ring-slate-900'
-                      : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                    sortMode === 'recent' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
                   )}
-                  title="Sortera: senaste mätning först"
                 >
                   Senast
                 </button>
@@ -934,40 +919,17 @@ const App: React.FC = () => {
                   onClick={() => setSortMode('az')}
                   className={cx(
                     'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    sortMode === 'az'
-                      ? 'bg-slate-900 text-white ring-slate-900'
-                      : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                    sortMode === 'az' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
                   )}
-                  title="Sortera: A–Ö"
                 >
                   A–Ö
                 </button>
               </div>
 
-              {/* Data error */}
               {dataError && (
-                <div className="rounded-2xl bg-rose-50 ring-1 ring-rose-900/10 px-4 py-3">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-0.5">
-                      <svg className="w-5 h-5 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 9v4m0 4h.01M10.29 3.86l-8.29 14.35A2 2 0 003.73 21h16.54a2 2 0 001.73-2.79L13.71 3.86a2 2 0 00-3.42 0z"
-                        />
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-rose-900">{dataError}</p>
-                      <button
-                        onClick={handleRefresh}
-                        className="mt-2 inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white hover:bg-rose-500"
-                      >
-                        Försök igen
-                      </button>
-                    </div>
-                  </div>
+                <div className="rounded-2xl bg-amber-50 ring-1 ring-amber-900/10 px-4 py-3 whitespace-pre-wrap">
+                  <div className="text-sm font-bold text-amber-900">Åtgärd krävs i Supabase</div>
+                  <div className="mt-1 text-sm text-amber-900/90">{dataError}</div>
                 </div>
               )}
             </div>
@@ -994,81 +956,21 @@ const App: React.FC = () => {
             )}
 
             {!hasAnyTrackedData ? (
-              <div className="text-center py-20 px-4 animate-in fade-in zoom-in-95 duration-500">
-                <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ring-1 ring-slate-900/5">
-                  <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                    />
-                  </svg>
-                </div>
+              <div className="text-center py-20 px-4">
                 <h3 className="text-lg font-bold text-slate-900">Inga värden registrerade</h3>
                 <p className="text-slate-600 mt-1 max-w-sm mx-auto text-sm">
-                  {bloodMarkers.length > 0
-                    ? 'Registrera din första mätning. När du har minst ett värde får du trend, status och historik per markör.'
-                    : 'Laddar markörer…'}
+                  Lägg till din första mätning för att få ref, historik och logg.
                 </p>
-
-                <button
-                  onClick={() => setIsModalOpen(true)}
-                  disabled={bloodMarkers.length === 0}
-                  className={cx(
-                    'mt-6 inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold',
-                    'bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10',
-                    'disabled:bg-slate-400 disabled:cursor-not-allowed',
-                  )}
-                >
-                  Lägg till första mätningen
-                </button>
               </div>
             ) : !hasFilteredResults ? (
               <div className="text-center py-16 px-4">
-                <div className="bg-white/80 backdrop-blur-sm w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ring-1 ring-slate-900/5">
-                  <svg className="w-7 h-7 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
                 <h3 className="text-lg font-bold text-slate-900">Inga träffar</h3>
-                <p className="text-slate-600 mt-1 text-sm">
-                  Justera sök/filter eller återställ för att se alla markörer igen.
-                </p>
-
-                <div className="mt-6 flex items-center justify-center gap-2">
-                  <button
-                    onClick={() => setQuery('')}
-                    className="rounded-full px-4 py-2 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800"
-                  >
-                    Rensa sök
-                  </button>
-                  <button
-                    onClick={() => {
-                      setQuery('');
-                      setStatusFilter('all');
-                      setSortMode('attention');
-                    }}
-                    className="rounded-full px-4 py-2 text-sm font-semibold bg-white ring-1 ring-slate-900/10 hover:bg-slate-50"
-                  >
-                    Återställ
-                  </button>
-                </div>
+                <p className="text-slate-600 mt-1 text-sm">Justera sök/filter eller återställ.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
                 {groupedData.map(({ category, markers }) => (
-                  <CategoryGroup
-                    key={category}
-                    title={category}
-                    markers={markers}
-                    onSelectMarker={setSelectedMarkerId}
-                  />
+                  <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} />
                 ))}
               </div>
             )}
@@ -1076,10 +978,13 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Floating Action Button */}
+      {/* FAB */}
       <div className="fixed bottom-6 right-6 z-40">
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setPrefillMarkerId(null);
+            setIsModalOpen(true);
+          }}
           disabled={bloodMarkers.length === 0}
           className={cx(
             'rounded-full p-4 pr-6 shadow-xl transition-all active:scale-95 flex items-center gap-2',
@@ -1097,9 +1002,13 @@ const App: React.FC = () => {
 
       <NewMeasurementModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          setPrefillMarkerId(null);
+        }}
         onSave={handleSaveMeasurement}
         availableMarkers={bloodMarkers}
+        initialMarkerId={prefillMarkerId ?? undefined}
       />
 
       <OptimizedListModal
