@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { MarkerHistory, Measurement } from '../types';
 import {
@@ -8,6 +9,7 @@ import {
   getStatus,
   getStatusTextColor,
   isWithinRange,
+  distanceToRange
 } from '../utils';
 
 interface Props {
@@ -50,7 +52,8 @@ const MiniHistorySparkline: React.FC<{
   const yRefMax = yOf(maxRef);
   const refTop = Math.min(yRefMin, yRefMax);
   const refBottom = Math.max(yRefMin, yRefMax);
-  const refHeight = Math.max(refBottom - refTop, 0);
+  // Ensure we have at least 2px height if the range is valid, and clamp to not be negative
+  const refHeight = Math.max(refBottom - refTop, minRef < maxRef ? 2 : 0);
 
   const xs = points.length === 1 ? [W / 2] : points.map((_, i) => (i / (points.length - 1)) * (W - 10) + 5);
   const ys = points.map((p) => yOf(p.value));
@@ -113,6 +116,34 @@ const BloodMarkerCard: React.FC<Props> = ({ data, onClick }) => {
   const deltaSign = delta == null ? '' : delta > 0 ? '+' : '';
   const deltaUp = delta != null && delta > 0;
   const deltaDown = delta != null && delta < 0;
+
+  // SMART TREND LOGIC
+  // Determine color based on whether we are moving CLOSER or FURTHER from reference range.
+  let trendColorClass = 'bg-slate-50 text-slate-700 ring-slate-900/10'; // Default Neutral
+
+  if (deltaInfo && deltaInfo.prev) {
+    const prevVal = deltaInfo.prev.value;
+    const currVal = latestMeasurement.value;
+
+    // distanceToRange returns 0 if inside, >0 if outside.
+    const distPrev = distanceToRange(prevVal, minRef, maxRef);
+    const distCurr = distanceToRange(currVal, minRef, maxRef);
+
+    if (distCurr === 0 && distPrev === 0) {
+       // Both are inside range. Fluctuations are normal/neutral.
+       trendColorClass = 'bg-slate-50 text-slate-700 ring-slate-900/10';
+    } else if (distCurr < distPrev) {
+       // We moved closer to the range (Good)
+       trendColorClass = 'bg-emerald-50 text-emerald-900 ring-emerald-900/10';
+    } else if (distCurr > distPrev) {
+       // We moved further from the range (Bad)
+       trendColorClass = 'bg-rose-50 text-rose-900 ring-rose-900/10';
+    } else {
+       // Distance didn't change (rare, or exactly parallel move relative to single boundary)
+       // Keep neutral or maybe slightly colored depending on status
+       if (distCurr > 0) trendColorClass = 'bg-rose-50 text-rose-900 ring-rose-900/10'; // Still bad
+    }
+  }
 
   const hasLatestNote = Boolean(latestMeasurement.note?.trim());
   const markerNotesCount = notes?.length ?? 0;
@@ -190,11 +221,7 @@ const BloodMarkerCard: React.FC<Props> = ({ data, onClick }) => {
                 <div
                   className={cx(
                     'text-[11px] font-semibold px-2 py-1 rounded-full ring-1',
-                    deltaUp
-                      ? 'bg-emerald-50 text-emerald-900 ring-emerald-900/10'
-                      : deltaDown
-                        ? 'bg-rose-50 text-rose-900 ring-rose-900/10'
-                        : 'bg-slate-50 text-slate-700 ring-slate-900/10',
+                    trendColorClass
                   )}
                   title={deltaInfo?.prev ? `Föregående: ${formatNumber(deltaInfo.prev.value)} ${unit}` : ''}
                 >

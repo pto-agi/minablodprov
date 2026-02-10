@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { MarkerHistory, MeasurementTodo, Measurement } from '../types';
-import { formatDateTime, formatDate, formatNumber } from '../utils';
+import { formatDateTime, formatDate, formatNumber, getStatusTextColor } from '../utils';
 import HistoryChart from './HistoryChart';
 import ReferenceVisualizer from './ReferenceVisualizer';
 
@@ -149,7 +149,7 @@ const DetailView: React.FC<Props> = ({
           <div className="text-right shrink-0">
              {latestMeasurement ? (
                 <div>
-                   <div className="text-4xl font-display font-bold text-slate-900">
+                   <div className={cx("text-4xl font-display font-bold", getStatusTextColor(data.status))}>
                       {formatNumber(latestMeasurement.value)}
                       <span className="text-lg text-slate-400 font-medium ml-1">{data.unit}</span>
                    </div>
@@ -185,6 +185,8 @@ const DetailView: React.FC<Props> = ({
                 minRef={data.minRef}
                 maxRef={data.maxRef}
                 unit={data.unit}
+                displayMin={data.displayMin}
+                displayMax={data.displayMax}
             />
         </div>
       </div>

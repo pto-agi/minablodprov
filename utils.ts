@@ -1,6 +1,24 @@
+
 import { BloodMarker, HealthStatus, FocusAreaId, Measurement } from './types';
 
+// Robust parsing for numbers that might come as strings with commas (Swedish format)
+export const safeFloat = (value: any): number => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (!value) return 0;
+  
+  // Convert string, replace comma with dot, remove non-numeric chars except dot/minus
+  const s = String(value).replace(',', '.').trim();
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+};
+
 export const getStatus = (value: number, min: number, max: number): HealthStatus => {
+  // If inputs are bad, default to normal to avoid crashing, 
+  // but this shouldn't happen if safeFloat is used upstream.
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return 'normal';
+  
   if (value < min) return 'low';
   if (value > max) return 'high';
   return 'normal';
@@ -97,7 +115,6 @@ export const getStatusText = (status: HealthStatus) => {
  * IDs / storage helpers
  */
 export const uid = () => {
-  // Best-effort: crypto.randomUUID if available
   try {
     // @ts-ignore
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();

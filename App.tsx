@@ -8,7 +8,7 @@ import {
   MarkerNote,
   MeasurementTodo,
 } from './types';
-import { getStatus } from './utils';
+import { getStatus, safeFloat } from './utils';
 import BloodMarkerCard from './components/BloodMarkerCard';
 import DetailView from './components/DetailView';
 import NewMeasurementModal from './components/NewMeasurementModal';
@@ -61,10 +61,8 @@ const CategoryGroup: React.FC<{
   const normalCount = markers.filter((m) => m.status === 'normal').length;
   const isAllNormal = total > 0 && normalCount === total;
 
-  const initialOpen = useMemo(() => !isAllNormal, [isAllNormal]);
-  const [isOpen, setIsOpen] = useState<boolean>(initialOpen);
-
-  useEffect(() => setIsOpen(initialOpen), [initialOpen]);
+  // Default collapsed as requested
+  const [isOpen, setIsOpen] = useState<boolean>(false);
 
   const ratio = total === 0 ? 0 : normalCount / total;
 
@@ -226,22 +224,29 @@ const App: React.FC = () => {
       const todosData = todosRes.data ?? [];
 
       const mappedMarkers: BloodMarker[] = markersData.map((m: any) => {
-        const minRef = Number(m.min_ref);
-        const maxRef = Number(m.max_ref);
+        // Use safeFloat to handle possible strings with commas from DB
+        const minRef = safeFloat(m.min_ref);
+        const maxRef = safeFloat(m.max_ref);
+        const displayMinRaw = safeFloat(m.display_min);
+        const displayMaxRaw = safeFloat(m.display_max);
 
-        const safeMinRef = Number.isFinite(minRef) ? minRef : 0;
-        const safeMaxRef = Number.isFinite(maxRef) ? maxRef : 0;
+        // If minRef/maxRef are valid numbers, calculate defaults. 
+        // If minRef is 0, we avoid multiplying 0 * 0.5 as that is still 0.
+        const displayMin = displayMinRaw > 0 
+           ? displayMinRaw 
+           : (minRef > 0 ? minRef * 0.5 : maxRef > 0 ? maxRef * 0.1 : 0);
 
-        const displayMin = m.display_min ?? (safeMinRef !== 0 ? safeMinRef * 0.5 : safeMaxRef * 0.5);
-        const displayMax = m.display_max ?? (safeMaxRef !== 0 ? safeMaxRef * 1.5 : safeMinRef * 1.5 || 1);
+        const displayMax = displayMaxRaw > 0
+           ? displayMaxRaw
+           : (maxRef > 0 ? maxRef * 1.5 : (minRef > 0 ? minRef * 2 : 100));
 
         return {
           id: m.id,
           name: m.name,
           shortName: m.short_name || String(m.name ?? '').substring(0, 3),
           unit: m.unit,
-          minRef: safeMinRef,
-          maxRef: safeMaxRef,
+          minRef,
+          maxRef,
           category: m.category || 'Övrigt',
           description: m.description || 'Ingen beskrivning tillgänglig.',
           displayMin,
@@ -252,7 +257,7 @@ const App: React.FC = () => {
       const mappedMeasurements: Measurement[] = measureData.map((item: any) => ({
         id: item.id,
         markerId: item.marker_id,
-        value: Number(item.value),
+        value: safeFloat(item.value), // Ensure value is a proper number
         date: item.measured_at,
         note: item.note ?? null,
       }));
@@ -372,10 +377,15 @@ const App: React.FC = () => {
 
   const stats = useMemo(() => {
     const optimizedEvents: OptimizationEvent[] = [];
-    let toOptimizeCount = 0;
+    const attentionMarkers: MarkerHistory[] = [];
+    let normalCount = 0;
 
     dashboardData.forEach((marker) => {
-      if (marker.status !== 'normal') toOptimizeCount++;
+      if (marker.status !== 'normal') {
+        attentionMarkers.push(marker);
+      } else {
+        normalCount++;
+      }
 
       const historyAsc = [...marker.measurements].sort((a, b) => ts(a.date) - ts(b.date));
 
@@ -402,27 +412,16 @@ const App: React.FC = () => {
     });
 
     optimizedEvents.sort((a, b) => ts(b.goodDate) - ts(a.goodDate));
-    return { optimizedEvents, toOptimizeCount };
+    // Sort attention markers by priority (High/Low first) then name
+    attentionMarkers.sort((a, b) => a.name.localeCompare(b.name));
+
+    return { optimizedEvents, attentionMarkers, normalCount, totalCount: dashboardData.length };
   }, [dashboardData]);
 
   const selectedMarkerData = useMemo(
     () => dashboardData.find((d) => d.id === selectedMarkerId),
     [dashboardData, selectedMarkerId],
   );
-
-  const dashboardSummary = useMemo(() => {
-    const total = dashboardData.length;
-    const normal = dashboardData.filter((m) => m.status === 'normal').length;
-    const attention = total - normal;
-
-    let lastIso: string | null = null;
-    for (const m of measurements) {
-      if (!m?.date) continue;
-      if (!lastIso || ts(m.date) > ts(lastIso)) lastIso = m.date;
-    }
-
-    return { total, normal, attention, lastIso };
-  }, [dashboardData, measurements]);
 
   const filteredDashboardData = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -476,12 +475,21 @@ const App: React.FC = () => {
     });
 
     entries.sort((a, b) => {
-      if (a.attentionCount !== b.attentionCount) return b.attentionCount - a.attentionCount;
       return a.category.localeCompare(b.category, 'sv');
     });
 
     return entries;
   }, [filteredDashboardData]);
+
+  // -----------------------------
+  // UX Handlers
+  // -----------------------------
+  const handleAttentionClick = useCallback(() => {
+    setStatusFilter('attention');
+    // Optional: scroll to list
+    const el = document.getElementById('marker-list-top');
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  }, []);
 
   // -----------------------------
   // Writes (DB-only)
@@ -804,160 +812,80 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 pt-6 relative">
-        <section className="mb-6 px-1">
-          <div className="rounded-3xl bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-5">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div className="min-w-0">
-                <h2 className="text-2xl font-display font-bold text-slate-900 tracking-tight">Dina värden</h2>
-                <p className="text-slate-600 text-sm mt-1">Sök, prioritera och följ upp med en tight interventionsloop.</p>
+      <main className="max-w-3xl mx-auto px-4 pt-6 relative" id="marker-list-top">
+        
+        {/* NEW DASHBOARD HERO */}
+        {!loadingData && hasAnyTrackedData && (
+          <StatsOverview
+            totalMarkers={stats.totalCount}
+            normalCount={stats.normalCount}
+            attentionMarkers={stats.attentionMarkers}
+            optimizedCount={stats.optimizedEvents.length}
+            onOptimizedClick={() => setIsOptimizedModalOpen(true)}
+            onAttentionClick={handleAttentionClick}
+          />
+        )}
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 ring-1 ring-slate-900/5 px-3 py-1.5">
-                    <span className="text-[11px] text-slate-500 font-semibold">Spårade</span>
-                    <span className="text-sm font-extrabold text-slate-900">{dashboardSummary.total}</span>
-                  </div>
-
-                  <button
-                    onClick={() => setStatusFilter('attention')}
-                    className="inline-flex items-center gap-2 rounded-full bg-amber-50 ring-1 ring-amber-900/10 px-3 py-1.5 hover:bg-amber-100 transition-colors"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                    <span className="text-[11px] text-amber-900 font-semibold">Behöver åtgärd</span>
-                    <span className="text-sm font-extrabold text-amber-900">{dashboardSummary.attention}</span>
-                  </button>
-
-                  <button
-                    onClick={() => setStatusFilter('normal')}
-                    className="inline-flex items-center gap-2 rounded-full bg-emerald-50 ring-1 ring-emerald-900/10 px-3 py-1.5 hover:bg-emerald-100 transition-colors"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <span className="text-[11px] text-emerald-900 font-semibold">Inom ref</span>
-                    <span className="text-sm font-extrabold text-emerald-900">{dashboardSummary.normal}</span>
-                  </button>
-
-                  {dashboardSummary.lastIso && (
-                    <div className="inline-flex items-center gap-2 rounded-full bg-white ring-1 ring-slate-900/10 px-3 py-1.5">
-                      <span className="text-[11px] text-slate-500 font-semibold">Senast</span>
-                      <span className="text-[11px] font-mono font-semibold text-slate-800">
-                        {formatDateTimeSv(dashboardSummary.lastIso)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-start justify-end gap-2">
-                <button
-                  onClick={() => setQuery('')}
-                  className={cx(
-                    'rounded-full px-3 py-2 text-xs font-semibold transition-colors',
-                    query.trim() ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-100 text-slate-500 cursor-not-allowed',
-                  )}
-                  disabled={!query.trim()}
-                >
-                  Rensa sök
-                </button>
-
-                <button
-                  onClick={() => {
-                    setQuery('');
-                    setStatusFilter('all');
-                    setSortMode('attention');
-                  }}
-                  className="rounded-full px-3 py-2 text-xs font-semibold bg-white ring-1 ring-slate-900/10 hover:bg-slate-50 transition-colors"
-                >
-                  Återställ
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-3">
-              <div className="relative">
-                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {/* TOOLBAR / FILTERS */}
+        <section className="mb-6 px-1 flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+            <div className="relative flex-1">
+               <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <input
+               </svg>
+               <input
                   ref={searchRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Sök markör (t.ex. Ferritin, HbA1c)…  •  Cmd/Ctrl + K"
-                  className={cx(
-                    'w-full rounded-2xl bg-white ring-1 ring-slate-900/10 shadow-sm',
-                    'pl-10 pr-4 py-3 text-sm text-slate-900 placeholder:text-slate-400',
-                    'focus:outline-none focus:ring-2 focus:ring-emerald-400',
-                  )}
-                />
-              </div>
+                  placeholder="Sök markör..."
+                  className="w-full h-11 rounded-2xl bg-white ring-1 ring-slate-900/10 shadow-sm pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+               />
+               {query && (
+                 <button 
+                   onClick={() => setQuery('')}
+                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                 >
+                   <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                   </svg>
+                 </button>
+               )}
+            </div>
 
-              <div className="flex flex-wrap gap-2">
-                <button
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-0">
+               <button
                   onClick={() => setStatusFilter('all')}
                   className={cx(
-                    'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    statusFilter === 'all' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                     'px-4 h-11 rounded-2xl text-xs font-bold whitespace-nowrap transition-colors',
+                     statusFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-900/10 hover:bg-slate-50'
                   )}
-                >
+               >
                   Alla
-                </button>
-                <button
+               </button>
+               <button
                   onClick={() => setStatusFilter('attention')}
                   className={cx(
-                    'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    statusFilter === 'attention' ? 'bg-amber-500 text-white ring-amber-500' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                     'px-4 h-11 rounded-2xl text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1.5',
+                     statusFilter === 'attention' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-900/10 hover:bg-slate-50'
                   )}
-                >
+               >
                   Avvikande
-                </button>
-                <button
-                  onClick={() => setStatusFilter('normal')}
-                  className={cx(
-                    'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    statusFilter === 'normal' ? 'bg-emerald-600 text-white ring-emerald-600' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
+                  {stats.attentionMarkers.length > 0 && (
+                    <span className={cx("px-1.5 py-0.5 rounded-full text-[10px]", statusFilter === 'attention' ? 'bg-black/20 text-white' : 'bg-amber-100 text-amber-800')}>
+                      {stats.attentionMarkers.length}
+                    </span>
                   )}
-                >
-                  Inom ref
-                </button>
-
-                <div className="w-px bg-slate-200 mx-1" />
-
-                <button
-                  onClick={() => setSortMode('attention')}
-                  className={cx(
-                    'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    sortMode === 'attention' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
-                  )}
-                >
-                  Viktigast
-                </button>
-                <button
-                  onClick={() => setSortMode('recent')}
-                  className={cx(
-                    'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    sortMode === 'recent' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
-                  )}
-                >
-                  Senast
-                </button>
-                <button
-                  onClick={() => setSortMode('az')}
-                  className={cx(
-                    'px-3 py-2 rounded-full text-xs font-semibold ring-1 transition-colors',
-                    sortMode === 'az' ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-900/10 hover:bg-slate-50',
-                  )}
-                >
-                  A–Ö
-                </button>
-              </div>
-
-              {dataError && (
-                <div className="rounded-2xl bg-amber-50 ring-1 ring-amber-900/10 px-4 py-3 whitespace-pre-wrap">
-                  <div className="text-sm font-bold text-amber-900">Åtgärd krävs i Supabase</div>
-                  <div className="mt-1 text-sm text-amber-900/90">{dataError}</div>
-                </div>
-              )}
+               </button>
+               <div className="w-px bg-slate-300 mx-1 h-6 self-center" />
+               <select
+                 value={sortMode}
+                 onChange={(e) => setSortMode(e.target.value as SortMode)}
+                 className="h-11 rounded-2xl bg-white ring-1 ring-slate-900/10 px-4 text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-900"
+               >
+                 <option value="attention">Viktigast</option>
+                 <option value="recent">Senast</option>
+                 <option value="az">A–Ö</option>
+               </select>
             </div>
-          </div>
         </section>
 
         {loadingData ? (
@@ -966,19 +894,10 @@ const App: React.FC = () => {
               <div className="h-4 w-44 bg-slate-200 rounded mb-4" />
               <div className="h-24 w-full bg-slate-200 rounded-3xl" />
               <div className="h-24 w-full bg-slate-200 rounded-3xl mt-3" />
-              <div className="h-24 w-full bg-slate-200 rounded-3xl mt-3" />
             </div>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {(stats.optimizedEvents.length > 0 || stats.toOptimizeCount > 0) && (
-              <StatsOverview
-                optimizedCount={stats.optimizedEvents.length}
-                toOptimizeCount={stats.toOptimizeCount}
-                onOptimizedClick={() => setIsOptimizedModalOpen(true)}
-              />
-            )}
-
             {!hasAnyTrackedData ? (
               <div className="text-center py-20 px-4">
                 <h3 className="text-lg font-bold text-slate-900">Inga värden registrerade</h3>
@@ -990,12 +909,28 @@ const App: React.FC = () => {
               <div className="text-center py-16 px-4">
                 <h3 className="text-lg font-bold text-slate-900">Inga träffar</h3>
                 <p className="text-slate-600 mt-1 text-sm">Justera sök/filter eller återställ.</p>
+                <button
+                   onClick={() => { setQuery(''); setStatusFilter('all'); }}
+                   className="mt-4 px-4 py-2 bg-slate-100 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-200"
+                >
+                  Rensa filter
+                </button>
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
-                {groupedData.map(({ category, markers }) => (
-                  <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} />
-                ))}
+              <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                {statusFilter === 'all' ? (
+                  // GROUPED VIEW (ACCORDIONS)
+                  groupedData.map(({ category, markers }) => (
+                    <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} />
+                  ))
+                ) : (
+                  // FLAT VIEW (SIMPLE LIST) for Attention / Normal filters
+                  <div className="flex flex-col gap-3 px-1">
+                    {filteredDashboardData.map(marker => (
+                       <BloodMarkerCard key={marker.id} data={marker} onClick={() => setSelectedMarkerId(marker.id)} />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
