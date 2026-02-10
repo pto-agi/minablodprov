@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   MarkerHistory,
@@ -15,6 +16,7 @@ import StatsOverview from './components/StatsOverview';
 import OptimizedListModal from './components/OptimizedListModal';
 import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
+import ImportModal from './components/ImportModal';
 import { supabase } from './supabaseClient';
 import { Session } from '@supabase/supabase-js';
 
@@ -139,6 +141,7 @@ const App: React.FC = () => {
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [prefillMarkerId, setPrefillMarkerId] = useState<string | null>(null);
   const [isOptimizedModalOpen, setIsOptimizedModalOpen] = useState(false);
 
@@ -501,6 +504,27 @@ const App: React.FC = () => {
       await fetchData();
     },
     [session?.user, fetchData],
+  );
+
+  const handleBulkSaveMeasurements = useCallback(
+    async (items: Array<{ markerId: string; value: number; date: string }>) => {
+      if (!session?.user) return;
+      if (items.length === 0) return;
+
+      const payload = items.map(item => ({
+        user_id: session.user.id,
+        marker_id: item.markerId,
+        value: item.value,
+        measured_at: item.date,
+        note: 'Importerat via AI',
+      }));
+
+      const { error } = await supabase.from('measurements').insert(payload);
+      if (error) throw error;
+
+      await fetchData();
+    },
+    [session?.user, fetchData]
   );
 
   const handleCreateMarkerNote = useCallback(
@@ -978,8 +1002,26 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* FAB */}
-      <div className="fixed bottom-6 right-6 z-40">
+      {/* FABs */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3 items-end">
+        {/* Bulk Import Button */}
+        <button
+          onClick={() => setIsImportModalOpen(true)}
+          disabled={bloodMarkers.length === 0}
+          className={cx(
+            'rounded-full p-4 pr-6 shadow-xl transition-all active:scale-95 flex items-center gap-2',
+            'bg-white text-slate-900 hover:bg-slate-50 shadow-slate-900/10',
+            'ring-1 ring-slate-900/10',
+            'disabled:opacity-50 disabled:cursor-not-allowed'
+          )}
+        >
+          <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          <span className="font-semibold text-sm">Importera svar</span>
+        </button>
+
+        {/* New Measurement Button */}
         <button
           onClick={() => {
             setPrefillMarkerId(null);
@@ -1009,6 +1051,13 @@ const App: React.FC = () => {
         onSave={handleSaveMeasurement}
         availableMarkers={bloodMarkers}
         initialMarkerId={prefillMarkerId ?? undefined}
+      />
+      
+      <ImportModal 
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        availableMarkers={bloodMarkers}
+        onSave={handleBulkSaveMeasurements}
       />
 
       <OptimizedListModal
