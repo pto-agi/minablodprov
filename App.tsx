@@ -514,6 +514,38 @@ const App: React.FC = () => {
     [session?.user, fetchData],
   );
 
+  const handleDeleteMeasurement = useCallback(
+    async (measurementId: string) => {
+      if (!session?.user) return;
+      
+      const { error } = await supabase
+        .from('measurements')
+        .delete()
+        .eq('id', measurementId)
+        .eq('user_id', session.user.id);
+
+      if (error) throw error;
+      await fetchData();
+    },
+    [session?.user, fetchData]
+  );
+
+  const handleUpdateMeasurement = useCallback(
+    async (measurementId: string, value: number, date: string) => {
+      if (!session?.user) return;
+      
+      const { error } = await supabase
+        .from('measurements')
+        .update({ value: value, measured_at: date })
+        .eq('id', measurementId)
+        .eq('user_id', session.user.id);
+
+      if (error) throw error;
+      await fetchData();
+    },
+    [session?.user, fetchData]
+  );
+
   const handleBulkSaveMeasurements = useCallback(
     async (items: Array<{ markerId: string; value: number; date: string }>) => {
       if (!session?.user) return;
@@ -741,6 +773,8 @@ const App: React.FC = () => {
         onToggleTodo={handleToggleTodo}
         onUpdateTodo={handleUpdateTodo}
         onDeleteTodo={handleDeleteTodo}
+        onDeleteMeasurement={handleDeleteMeasurement}
+        onUpdateMeasurement={handleUpdateMeasurement}
       />
     );
   }

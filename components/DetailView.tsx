@@ -20,6 +20,8 @@ interface Props {
   onToggleTodo: (todoId: string, done: boolean) => Promise<void>;
   onUpdateTodo: (todoId: string, task: string) => Promise<void>;
   onDeleteTodo: (todoId: string) => Promise<void>;
+  onDeleteMeasurement?: (measurementId: string) => Promise<void>;
+  onUpdateMeasurement?: (measurementId: string, value: number, date: string) => Promise<void>;
 }
 
 const DetailView: React.FC<Props> = ({
@@ -35,6 +37,8 @@ const DetailView: React.FC<Props> = ({
   onToggleTodo,
   onUpdateTodo,
   onDeleteTodo,
+  onDeleteMeasurement,
+  onUpdateMeasurement,
 }) => {
   // UI State
   const [activeTab, setActiveTab] = useState<'log' | 'history'>('log');
@@ -48,6 +52,11 @@ const DetailView: React.FC<Props> = ({
   // Measurement Note Editing
   const [editingMeasurementNoteId, setEditingMeasurementNoteId] = useState<string | null>(null);
   const [editingMeasurementNoteText, setEditingMeasurementNoteText] = useState('');
+
+  // Measurement Value/Date Editing (History)
+  const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
+  const [editHistoryValue, setEditHistoryValue] = useState<string>('');
+  const [editHistoryDate, setEditHistoryDate] = useState<string>('');
 
   // Todo Editing
   const [newTodo, setNewTodo] = useState('');
@@ -86,6 +95,48 @@ const DetailView: React.FC<Props> = ({
     const val = editingMeasurementNoteText.trim() || null;
     await onUpdateMeasurementNote(editingMeasurementNoteId, val);
     setEditingMeasurementNoteId(null);
+  };
+
+  // Handlers for Measurement Value/Date
+  const startEditHistory = (m: Measurement) => {
+    setEditingHistoryId(m.id);
+    setEditHistoryValue(m.value.toString());
+    setEditHistoryDate(m.date.split('T')[0]); // ISO date part
+  };
+
+  const cancelEditHistory = () => {
+    setEditingHistoryId(null);
+    setEditHistoryValue('');
+    setEditHistoryDate('');
+  };
+
+  const saveEditHistory = async () => {
+    if (!editingHistoryId || !onUpdateMeasurement) return;
+    const val = parseFloat(editHistoryValue);
+    if (Number.isNaN(val) || !editHistoryDate) return;
+
+    await onUpdateMeasurement(editingHistoryId, val, editHistoryDate);
+    setEditingHistoryId(null);
+  };
+
+  const handleDeleteHistoryItem = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Stop bubbling
+    e.preventDefault();
+    
+    if (!onDeleteMeasurement) {
+        console.error("Delete function missing");
+        alert("Fel: Raderingsfunktionen är inte kopplad korrekt. Ladda om sidan.");
+        return;
+    }
+
+    if (window.confirm('Är du säker på att du vill ta bort denna mätning permanent?')) {
+        try {
+            await onDeleteMeasurement(id);
+        } catch (err) {
+            console.error("Delete failed", err);
+            alert("Kunde inte ta bort mätningen. Kontrollera din anslutning eller rättigheter.");
+        }
+    }
   };
 
   // Handlers for Todos
@@ -394,46 +445,99 @@ const DetailView: React.FC<Props> = ({
 
          {activeTab === 'history' && (
             <div className="space-y-3">
-               {data.measurements.map(m => (
+               {data.measurements.map(m => {
+                 const isEditingHistory = editingHistoryId === m.id;
+                 return (
                   <div key={m.id} className="bg-white p-4 rounded-3xl ring-1 ring-slate-900/5 shadow-sm flex items-start justify-between">
-                     <div>
-                        <div className="text-lg font-bold text-slate-900">
-                           {formatNumber(m.value)} <span className="text-sm text-slate-400 font-medium">{data.unit}</span>
-                        </div>
-                        <div className="text-xs font-medium text-slate-500 mt-1">
-                           {formatDate(m.date)}
-                        </div>
-                        {m.note && (
-                           <div className="mt-3 text-sm text-slate-600 bg-slate-50 p-3 rounded-xl">
-                              {m.note}
-                           </div>
+                     <div className="flex-1 min-w-0 pr-4">
+                        {isEditingHistory ? (
+                          <div className="flex flex-col gap-2">
+                             <div className="flex items-center gap-2">
+                                <input
+                                   type="number"
+                                   step="0.01"
+                                   value={editHistoryValue}
+                                   onChange={(e) => setEditHistoryValue(e.target.value)}
+                                   className="w-24 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold focus:ring-2 focus:ring-slate-900 outline-none"
+                                />
+                                <span className="text-sm font-medium text-slate-400">{data.unit}</span>
+                             </div>
+                             <input
+                                type="date"
+                                value={editHistoryDate}
+                                onChange={(e) => setEditHistoryDate(e.target.value)}
+                                className="w-full sm:w-auto bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-slate-900 outline-none"
+                             />
+                             <div className="flex gap-2 mt-1">
+                                <button onClick={saveEditHistory} className="text-xs font-bold bg-slate-900 text-white px-3 py-1.5 rounded-lg">Spara</button>
+                                <button onClick={cancelEditHistory} className="text-xs font-semibold text-slate-500 hover:bg-slate-50 px-3 py-1.5 rounded-lg">Avbryt</button>
+                             </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-lg font-bold text-slate-900">
+                               {formatNumber(m.value)} <span className="text-sm text-slate-400 font-medium">{data.unit}</span>
+                            </div>
+                            <div className="text-xs font-medium text-slate-500 mt-1">
+                               {formatDate(m.date)}
+                            </div>
+                            {m.note && (
+                               <div className="mt-3 text-sm text-slate-600 bg-slate-50 p-3 rounded-xl">
+                                  {m.note}
+                               </div>
+                            )}
+                          </>
                         )}
                      </div>
                      
-                     <button
-                        onClick={() => {
-                           // Use existing edit logic for measurement note
-                           if (editingMeasurementNoteId === m.id) {
-                              setEditingMeasurementNoteId(null);
-                           } else {
-                              startEditMeasurementNote(m);
-                              // Scroll to top or handle UI for editing history note better? 
-                              // For now just toggle into edit state, but the edit UI is in the top card.
-                              // Ideally we should allow inline edit here too.
-                              // Let's implement inline edit here for simplicity
-                           }
-                        }}
-                        className="p-2 text-slate-300 hover:text-slate-600"
-                     >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                     </button>
+                     <div className="flex flex-col gap-1 items-end">
+                       {/* Note Edit Button */}
+                       <button
+                          onClick={() => {
+                             if (editingMeasurementNoteId === m.id) {
+                                setEditingMeasurementNoteId(null);
+                             } else {
+                                startEditMeasurementNote(m);
+                             }
+                          }}
+                          title="Redigera anteckning"
+                          className="p-2 text-slate-300 hover:text-slate-600 transition-colors rounded-lg hover:bg-slate-50"
+                       >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                       </button>
+
+                       {!isEditingHistory && (
+                         <>
+                           {/* Edit Value/Date Button */}
+                           <button
+                              onClick={() => startEditHistory(m)}
+                              title="Redigera värde/datum"
+                              className="p-2 text-slate-300 hover:text-emerald-600 transition-colors rounded-lg hover:bg-emerald-50"
+                           >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                           </button>
+
+                           {/* Delete Button */}
+                           <button
+                              type="button"
+                              onClick={(e) => handleDeleteHistoryItem(m.id, e)}
+                              title="Ta bort mätning"
+                              className="p-2 text-slate-300 hover:text-rose-600 transition-colors rounded-lg hover:bg-rose-50"
+                           >
+                              <svg className="w-5 h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                           </button>
+                         </>
+                       )}
+                     </div>
                   </div>
-               ))}
+                 );
+               })}
                
-               {/* Inline edit modal for history item could be added here if needed, but keeping it simple */}
                {editingMeasurementNoteId && !latestMeasurement && (
-                  // Fallback if we are editing a history item but it's not the latest (which has dedicated UI)
-                  // This is a bit rough, but functional for now.
                   <div className="fixed inset-0 bg-black/20 flex items-center justify-center p-4 z-50">
                      <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl">
                         <h3 className="font-bold text-lg mb-4">Redigera anteckning</h3>
