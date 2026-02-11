@@ -7,6 +7,7 @@ import {
   OptimizationEvent,
   MarkerNote,
   MeasurementTodo,
+  JournalPlan,
 } from './types';
 import { getStatus, safeFloat, formatNumber } from './utils';
 import BloodMarkerCard from './components/BloodMarkerCard';
@@ -19,6 +20,8 @@ import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
 import ImportModal from './components/ImportModal';
 import GlobalTimelineDrawer from './components/GlobalTimelineDrawer';
+import JournalHub from './components/JournalHub';
+import JournalEditor from './components/JournalEditor';
 import { supabase } from './supabaseClient';
 import { Session } from '@supabase/supabase-js';
 
@@ -63,8 +66,13 @@ type ToastState = {
 
 const humanizeSupabaseError = (err: any) => {
   const raw = (err?.message || err?.error_description || err?.hint || String(err || '')).toString();
+  const code = err?.code;
   const msg = raw.trim() || 'Okänt fel';
   const lower = msg.toLowerCase();
+
+  if (code === 'PGRST204' || (lower.includes('could not find the') && lower.includes('column'))) {
+    return 'Databasfel: Tabellen saknar nödvändiga kolumner (t.ex. "title"). Vänligen kör SQL-migrationen för att uppdatera databasen.';
+  }
 
   if (lower.includes('row level security') || lower.includes('violates row-level security')) {
     return 'Åtkomst nekad (Row Level Security). Kontrollera policies för tabellen.';
@@ -196,7 +204,11 @@ const App: React.FC = () => {
 
   const [session, setSession] = useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
+  
+  // Navigation State
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [view, setView] = useState<'dashboard' | 'journal'>('dashboard');
+  const [editingPlan, setEditingPlan] = useState<JournalPlan | null | 'new'>(null);
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -209,6 +221,7 @@ const App: React.FC = () => {
   const [dbCapabilities, setDbCapabilities] = useState({
     markerNotes: true,
     todos: true,
+    journal: true
   });
 
   // Toast
@@ -248,6 +261,7 @@ const App: React.FC = () => {
   const [bloodMarkers, setBloodMarkers] = useState<BloodMarker[]>([]);
   const [markerNotes, setMarkerNotes] = useState<MarkerNote[]>([]);
   const [todos, setTodos] = useState<MeasurementTodo[]>([]);
+  const [journalPlans, setJournalPlans] = useState<JournalPlan[]>([]);
 
   const [loadingData, setLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -304,11 +318,13 @@ const App: React.FC = () => {
     const missing: string[] = [];
 
     try {
-      const [markersRes, measurementsRes, notesRes, todosRes] = await Promise.all([
+      const [markersRes, measurementsRes, notesRes, todosRes, journalRes, journalMarkersRes] = await Promise.all([
         supabase.from('blood_markers').select('*'),
         supabase.from('measurements').select('*').eq('user_id', userId).order('measured_at', { ascending: false }),
         supabase.from('marker_notes').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('measurement_todos').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
+        supabase.from('journal_entries').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('journal_entry_markers').select('*'), // This might need filter if policy allows
       ]);
 
       if (markersRes.error) throw markersRes.error;
@@ -316,16 +332,21 @@ const App: React.FC = () => {
 
       const notesOk = !notesRes.error;
       const todosOk = !todosRes.error;
+      const journalOk = !journalRes.error;
 
-      setDbCapabilities({ markerNotes: notesOk, todos: todosOk });
+      setDbCapabilities({ markerNotes: notesOk, todos: todosOk, journal: journalOk });
 
       if (notesRes.error) missing.push(`marker_notes (${notesRes.error.message})`);
       if (todosRes.error) missing.push(`measurement_todos (${todosRes.error.message})`);
+      // Journal table might be missing entirely if migration not run, suppress error if so for now but track it
+      if (journalRes.error) console.warn("Journal table missing:", journalRes.error.message);
 
       const markersData = markersRes.data ?? [];
       const measureData = measurementsRes.data ?? [];
       const notesData = notesOk ? (notesRes.data ?? []) : [];
       const todosData = todosOk ? (todosRes.data ?? []) : [];
+      const journalData = journalOk ? (journalRes.data ?? []) : [];
+      const journalMarkersData = journalMarkersRes.data ?? [];
 
       const mappedMarkers: BloodMarker[] = markersData.map((m: any) => {
         const minRef = safeFloat(m.min_ref);
@@ -375,13 +396,10 @@ const App: React.FC = () => {
       }));
 
       const mappedTodos: MeasurementTodo[] = todosData.map((t: any) => {
-        // Hybrid logic: support new array col 'marker_ids', fallback to legacy 'measurement_id' (lookup marker)
         let ids: string[] = [];
-        
         if (Array.isArray(t.marker_ids)) {
             ids = t.marker_ids;
         } else if (t.measurement_id) {
-           // Fallback for old data: find the measurement, get its markerId
            const m = mappedMeasurements.find(meas => meas.id === t.measurement_id);
            if (m) ids = [m.markerId];
         }
@@ -392,16 +410,36 @@ const App: React.FC = () => {
           markerIds: ids,
           task: t.task ?? '',
           done: Boolean(t.is_done),
-          dueDate: t.due_date, // Map from DB
+          dueDate: t.due_date, 
+          linkedJournalId: t.linked_journal_id, // New Field
           createdAt: t.created_at,
           updatedAt: t.updated_at,
         };
+      });
+
+      const mappedPlans: JournalPlan[] = journalData.map((j: any) => {
+         const linkedMarkers = journalMarkersData
+            .filter((jm: any) => jm.journal_id === j.id)
+            .map((jm: any) => jm.marker_id);
+         
+         return {
+            id: j.id,
+            title: j.title || '',
+            content: j.content || '',
+            isPinned: j.is_pinned,
+            createdAt: j.created_at,
+            updatedAt: j.updated_at,
+            startDate: j.start_date, // Map from DB
+            targetDate: j.target_date, // Map from DB
+            linkedMarkerIds: linkedMarkers
+         }
       });
 
       setBloodMarkers(mappedMarkers);
       setMeasurements(mappedMeasurements);
       setMarkerNotes(mappedNotes);
       setTodos(mappedTodos);
+      setJournalPlans(mappedPlans);
 
       if (missing.length) {
         setDataError(
@@ -417,7 +455,7 @@ const App: React.FC = () => {
       const msg = humanizeSupabaseError(error);
       setDataError(`Kunde inte hämta data. ${msg}`);
       // När fetch failar vill vi inte felaktigt “stänga av” features
-      setDbCapabilities({ markerNotes: true, todos: true });
+      setDbCapabilities({ markerNotes: true, todos: true, journal: true });
     } finally {
       setLoadingData(false);
     }
@@ -437,6 +475,7 @@ const App: React.FC = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'measurements', filter: `user_id=eq.${userId}` }, fetchData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'marker_notes', filter: `user_id=eq.${userId}` }, fetchData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'measurement_todos', filter: `user_id=eq.${userId}` }, fetchData)
+      // Listen to journal table too if possible
       .subscribe();
 
     return () => {
@@ -491,6 +530,13 @@ const App: React.FC = () => {
   }, [bloodMarkers, measurementsByMarkerId, notesByMarkerId]);
 
   const activeTodos = useMemo(() => todos.filter(t => !t.done), [todos]);
+
+  // Map journal plan IDs to titles for badges
+  const planTitles = useMemo(() => {
+     const map: Record<string, string> = {};
+     journalPlans.forEach(p => map[p.id] = p.title);
+     return map;
+  }, [journalPlans]);
 
   const stats = useMemo(() => {
     const optimizedEvents: OptimizationEvent[] = [];
@@ -633,6 +679,7 @@ const App: React.FC = () => {
   // -----------------------------
   // Writes (DB-only)
   // -----------------------------
+  // ... (Other handlers unchanged) ...
   const handleSaveMeasurement = useCallback(
     async (markerId: string, value: number, date: string, note?: string) => {
       if (!session?.user) return;
@@ -859,25 +906,22 @@ const App: React.FC = () => {
   );
 
   const handleAddTodo = useCallback(
-    async (markerId: string, task: string) => {
+    async (task: string, journalId?: string) => { // Updated sig to support journals
       if (!session?.user) return;
-
-      if (!dbCapabilities.todos) {
-        showToast({ type: 'error', title: 'Uppgifter är inte aktiverade', message: 'Tabellen saknas.' });
-        return;
-      }
 
       const clean = task.trim();
       if (!clean) return;
 
       try {
-        const { error } = await supabase.from('measurement_todos').insert([
-          { 
+        const payload: any = { 
             user_id: session.user.id, 
-            marker_ids: [markerId], // New schema: array of markers
-            task: clean 
-          },
-        ]);
+            task: clean,
+            marker_ids: [] // Default empty
+        };
+        
+        if (journalId) payload.linked_journal_id = journalId;
+
+        const { error } = await supabase.from('measurement_todos').insert([payload]);
         if (error) throw error;
 
         await fetchData();
@@ -889,6 +933,23 @@ const App: React.FC = () => {
     },
     [session?.user, fetchData, showToast, dbCapabilities.todos],
   );
+
+  // Wrapper for the simpler marker-based add todo
+  const handleAddTodoMarker = useCallback(async (markerId: string, task: string) => {
+      if (!session?.user) return;
+      try {
+        const { error } = await supabase.from('measurement_todos').insert([{
+            user_id: session.user.id,
+            task: task.trim(),
+            marker_ids: [markerId]
+        }]);
+        if (error) throw error;
+        await fetchData();
+        showToast({ type: 'success', title: 'Sparat', message: 'Uppgiften är sparad.' });
+      } catch (err) {
+          showToast({ type: 'error', title: 'Fel', message: String(err) });
+      }
+  }, [session?.user, fetchData, showToast]);
 
   const handleUpdateTodoTags = useCallback(
     async (todoId: string, markerIds: string[]) => {
@@ -973,6 +1034,87 @@ const App: React.FC = () => {
     [session?.user, fetchData, showToast],
   );
 
+  // --- JOURNAL ACTIONS ---
+  const handleSaveJournalPlan = useCallback(async (title: string, content: string, markerIds: string[], startDate?: string, targetDate?: string) => {
+      if (!session?.user) throw new Error("No user");
+      
+      try {
+        const isNew = editingPlan === 'new';
+        const id = isNew ? undefined : (editingPlan as JournalPlan).id;
+
+        let savedId = id;
+
+        // 1. Upsert Plan
+        const payload: any = {
+            user_id: session.user.id,
+            title,
+            content,
+            start_date: startDate || null,
+            target_date: targetDate || null,
+            updated_at: new Date().toISOString()
+        };
+        if (id) payload.id = id;
+
+        const { data, error } = await supabase
+          .from('journal_entries')
+          .upsert(payload)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        savedId = data.id;
+
+        // 2. Sync Markers (Delete old, insert new - simpler than diffing)
+        // Only do this if markers changed or it's new. For simplicity, we just redo it.
+        if (savedId) {
+            await supabase.from('journal_entry_markers').delete().eq('journal_id', savedId);
+            if (markerIds.length > 0) {
+                await supabase.from('journal_entry_markers').insert(
+                    markerIds.map(mid => ({ journal_id: savedId, marker_id: mid }))
+                );
+            }
+        }
+
+        await fetchData();
+        
+        // Update editingPlan state so UI knows we are editing a saved plan now
+        if (editingPlan) {
+            setEditingPlan({
+                id: data.id,
+                title: data.title,
+                content: data.content,
+                createdAt: data.created_at,
+                updatedAt: data.updated_at,
+                startDate: data.start_date,
+                targetDate: data.target_date,
+                isPinned: data.is_pinned,
+                linkedMarkerIds: markerIds
+            });
+        }
+
+        showToast({ type: 'success', title: 'Plan sparad', message: 'Din plan har uppdaterats.' });
+        return savedId as string;
+      } catch (err: any) {
+        console.error('Error saving plan:', err);
+        showToast({ type: 'error', title: 'Kunde inte spara', message: humanizeSupabaseError(err) });
+        throw err;
+      }
+  }, [session?.user, editingPlan, fetchData, showToast]);
+
+  const handleDeleteJournalPlan = useCallback(async (id: string) => {
+      if (!session?.user) return;
+      try {
+          const { error } = await supabase.from('journal_entries').delete().eq('id', id).eq('user_id', session.user.id);
+          if (error) throw error;
+          await fetchData();
+          showToast({ type: 'success', title: 'Plan borttagen', message: 'Din plan är borta.' });
+      } catch (err) {
+          console.error(err);
+          showToast({ type: 'error', title: 'Fel', message: 'Kunde inte ta bort planen' });
+      }
+  }, [session?.user, fetchData, showToast]);
+
+
   const handleSignOut = useCallback(async () => {
     try {
       await supabase.auth.signOut();
@@ -981,10 +1123,11 @@ const App: React.FC = () => {
       setBloodMarkers([]);
       setMarkerNotes([]);
       setTodos([]);
+      setJournalPlans([]);
       setSelectedMarkerId(null);
       setShowAuth(false);
       setSeenOptimizedCount(0);
-      setDbCapabilities({ markerNotes: true, todos: true });
+      setDbCapabilities({ markerNotes: true, todos: true, journal: true });
       setToast(null);
     }
   }, []);
@@ -1013,6 +1156,29 @@ const App: React.FC = () => {
     );
   }
 
+  // --- EDITOR VIEW (Full Screen) ---
+  if (editingPlan) {
+      const plan = editingPlan === 'new' ? null : editingPlan;
+      // Filter linked todos
+      const linked = plan ? todos.filter(t => t.linkedJournalId === plan.id) : [];
+
+      return (
+          <JournalEditor 
+             plan={plan}
+             allMarkers={dashboardData} // IMPORTANT: Passing full history data for status check
+             linkedTodos={linked}
+             onClose={() => setEditingPlan(null)}
+             onSave={handleSaveJournalPlan}
+             onDelete={handleDeleteJournalPlan} // Passed here
+             onAddTodo={(task, jId) => handleAddTodo(task, jId)}
+             onToggleTodo={handleToggleTodo}
+             onDeleteTodo={handleDeleteTodo}
+             onUpdateTodoTask={handleUpdateTodoTask}
+          />
+      );
+  }
+
+  // --- MARKER DETAIL VIEW ---
   if (selectedMarkerId) {
     if (!selectedMarkerData) {
       return (
@@ -1046,15 +1212,12 @@ const App: React.FC = () => {
         onDeleteNote={handleDeleteMarkerNote}
         onUpdateMeasurementNote={handleUpdateMeasurementNote}
         todos={todosForMarker}
-        onAddTodo={handleAddTodo}
+        onAddTodo={handleAddTodoMarker}
         onToggleTodo={handleToggleTodo}
-        onUpdateTodo={handleUpdateTodoTask} // Maps to the new function that handles task AND date
+        onUpdateTodo={handleUpdateTodoTask}
         onDeleteTodo={handleDeleteTodo}
         onDeleteMeasurement={handleDeleteMeasurement}
         onUpdateMeasurement={handleUpdateMeasurement}
-        
-        // Pass extra data for tagging
-        // @ts-ignore - Adding extra props to DetailView dynamically (will fix in DetailView next)
         allMarkers={bloodMarkers}
         onUpdateTags={handleUpdateTodoTags}
       />
@@ -1078,7 +1241,7 @@ const App: React.FC = () => {
               <span className="font-display tracking-tight">BW</span>
               <div className="absolute inset-0 rounded-2xl ring-1 ring-white/15" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 hidden sm:block">
               <h1 className="text-lg sm:text-xl font-display font-bold text-slate-900 tracking-tight leading-tight">
                 bloodwork.se
               </h1>
@@ -1089,12 +1252,24 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden md:flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-slate-900/10 px-3 py-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span className="text-xs text-slate-700 font-semibold truncate max-w-[260px]">{session.user.email}</span>
+            
+            {/* VIEW SWITCHER */}
+            <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
+               <button 
+                 onClick={() => setView('dashboard')}
+                 className={cx("px-3 py-1.5 rounded-lg text-xs font-bold transition-all", view === 'dashboard' ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-900")}
+               >
+                 Översikt
+               </button>
+               <button 
+                 onClick={() => setView('journal')}
+                 className={cx("px-3 py-1.5 rounded-lg text-xs font-bold transition-all", view === 'journal' ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-900")}
+               >
+                 Journal
+               </button>
             </div>
 
-            {/* NEW: Timeline Button */}
+            {/* Timeline Button */}
             <button
               onClick={() => setIsTimelineOpen(true)}
               className="w-10 h-10 rounded-full bg-white/70 hover:bg-white flex items-center justify-center ring-1 ring-slate-900/10 transition-colors"
@@ -1158,208 +1333,179 @@ const App: React.FC = () => {
           </div>
         )}
 
-        
-        {/* NEW DASHBOARD HERO */}
-        {!loadingData && hasAnyTrackedData && (
-          <StatsOverview
-            totalMarkers={stats.totalCount}
-            normalCount={stats.normalCount}
-            attentionMarkers={stats.attentionMarkers}
-            optimizedCount={stats.optimizedEvents.length}
-            coveredAttentionCount={stats.coveredAttentionCount}
-            onOptimizedClick={handleOpenOptimizedEvents}
-            onAttentionClick={handleAttentionClick}
-            newOptimizedCount={newOptimizedCount}
-          />
-        )}
-        
-        {/* NEW: ACTIVE ACTION LIST (TODOS) */}
-        {!loadingData && activeTodos.length > 0 && (
-          <ActionList 
-            todos={activeTodos}
-            availableMarkers={bloodMarkers}
-            onToggle={handleToggleTodo}
-            onDelete={handleDeleteTodo}
-            onTagClick={setSelectedMarkerId}
-          />
-        )}
-
-        {/* TOOLBAR / FILTERS */}
-        <section className="mb-6 px-1 flex flex-col md:flex-row gap-3 items-stretch md:items-center">
-            {/* Search Input */}
-            <div className="relative flex-1">
-               <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
-               </svg>
-               <input
-                  ref={searchRef}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Sök markör..."
-                  className="w-full h-11 rounded-2xl bg-white ring-1 ring-slate-900/10 shadow-sm pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
-               />
-               {query && (
-                 <button 
-                   onClick={() => setQuery('')}
-                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                 >
-                   <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                   </svg>
-                 </button>
-               )}
-            </div>
-
-            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-0">
-               {/* SWAPPED BUTTONS: Avvikande first */}
-               <button
-                  onClick={() => setStatusFilter('attention')}
-                  className={cx(
-                     'px-4 h-11 rounded-2xl text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1.5',
-                     statusFilter === 'attention' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-900/10 hover:bg-slate-50'
-                  )}
-               >
-                  Avvikande
-                  {stats.attentionMarkers.length > 0 && (
-                    <span className={cx("px-1.5 py-0.5 rounded-full text-[10px]", statusFilter === 'attention' ? 'bg-black/20 text-white' : 'bg-amber-100 text-amber-800')}>
-                      {stats.attentionMarkers.length}
-                    </span>
-                  )}
-               </button>
-
-               <button
-                  onClick={() => setStatusFilter('all')}
-                  className={cx(
-                     'px-4 h-11 rounded-2xl text-xs font-bold whitespace-nowrap transition-colors',
-                     statusFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-900/10 hover:bg-slate-50'
-                  )}
-               >
-                  Alla värden
-               </button>
-
-               <div className="w-px bg-slate-300 mx-1 h-6 self-center" />
-               <select
-                 value={sortMode}
-                 onChange={(e) => setSortMode(e.target.value as SortMode)}
-                 className="h-11 rounded-2xl bg-white ring-1 ring-slate-900/10 px-4 text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-900"
-               >
-                 <option value="attention">Viktigast</option>
-                 <option value="recent">Senast</option>
-                 <option value="az">A–Ö</option>
-               </select>
-            </div>
-        </section>
-
-        {loadingData ? (
-          <div className="py-10 flex justify-center">
-            <div className="animate-pulse flex flex-col items-center w-full max-w-2xl">
-              <div className="h-4 w-44 bg-slate-200 rounded mb-4" />
-              <div className="h-24 w-full bg-slate-200 rounded-3xl" />
-              <div className="h-24 w-full bg-slate-200 rounded-3xl mt-3" />
-            </div>
-          </div>
+        {view === 'journal' ? (
+           // JOURNAL VIEW
+           <JournalHub 
+              plans={journalPlans} 
+              markers={bloodMarkers} 
+              onOpenPlan={(p) => setEditingPlan(p || 'new')} 
+           />
         ) : (
-          <div className="flex flex-col gap-2">
-            {!hasAnyTrackedData ? (
-              <div className="py-10 px-1">
-                <div className="rounded-[2rem] bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
-                    <div className="min-w-0">
-                      <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                        Kom igång med din första provtagning
-                      </h3>
-                      <p className="text-slate-600 mt-2 text-sm max-w-xl">
-                        Importera ett provsvar (snabbast) eller lägg in värden manuellt. När du har data får du status mot referens,
-                        fokusområden som prioriterar rätt och milstolpar när du förbättrar.
-                      </p>
+           // DASHBOARD VIEW
+           <>
+              {!loadingData && hasAnyTrackedData && (
+                <StatsOverview
+                  totalMarkers={stats.totalCount}
+                  normalCount={stats.normalCount}
+                  attentionMarkers={stats.attentionMarkers}
+                  optimizedCount={stats.optimizedEvents.length}
+                  coveredAttentionCount={stats.coveredAttentionCount}
+                  onOptimizedClick={handleOpenOptimizedEvents}
+                  onAttentionClick={handleAttentionClick}
+                  newOptimizedCount={newOptimizedCount}
+                />
+              )}
+              
+              {!loadingData && activeTodos.length > 0 && (
+                <ActionList 
+                  todos={activeTodos}
+                  availableMarkers={bloodMarkers}
+                  onToggle={handleToggleTodo}
+                  onDelete={handleDeleteTodo}
+                  onTagClick={setSelectedMarkerId}
+                  planTitles={planTitles}
+                />
+              )}
 
-                      <div className="mt-5 grid sm:grid-cols-3 gap-3 max-w-2xl">
-                        {[
-                          { t: '1) Importera', d: 'Klistra in/adda provsvar' },
-                          { t: '2) Se status', d: 'Avvikande vs inom ref' },
-                          { t: '3) Följ trenden', d: 'Se förbättring över tid' },
-                        ].map((x) => (
-                          <div key={x.t} className="rounded-3xl bg-white ring-1 ring-slate-900/5 shadow-sm p-4">
-                            <div className="text-sm font-bold text-slate-900 tracking-tight">{x.t}</div>
-                            <div className="text-xs text-slate-500 mt-1">{x.d}</div>
-                          </div>
-                        ))}
-                      </div>
-
-                      <p className="mt-5 text-xs text-slate-500">
-                        Tips: Tryck <span className="font-mono">Ctrl/Cmd + K</span> för att söka bland markörer.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col gap-3 w-full sm:w-[16rem]">
-                      <button
-                        onClick={() => setIsImportModalOpen(true)}
-                        className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10"
-                        type="button"
-                      >
-                        Importera provsvar
-                      </button>
-                      <button
-                        onClick={() => {
-                          setPrefillMarkerId(null);
-                          setIsModalOpen(true);
-                        }}
-                        className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-white ring-1 ring-slate-900/10 hover:bg-slate-50"
-                        type="button"
-                      >
-                        Lägg till manuellt
-                      </button>
-
-                      <div className="text-[11px] text-slate-500 leading-snug">
-                        Ingen medicinsk rådgivning – verktyg för spårning, struktur och motivation.
-                      </div>
-                    </div>
+              <section className="mb-6 px-1 flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+                  <div className="relative flex-1">
+                     <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
+                     </svg>
+                     <input
+                        ref={searchRef}
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Sök markör..."
+                        className="w-full h-11 rounded-2xl bg-white ring-1 ring-slate-900/10 shadow-sm pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                     />
+                     {query && (
+                       <button 
+                         onClick={() => setQuery('')}
+                         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                       >
+                         <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                         </svg>
+                       </button>
+                     )}
                   </div>
-                </div>
-              </div>
-            ) : !hasFilteredResults ? (
-               statusFilter === 'attention' && !query ? (
-                  <div className="text-center py-16 px-4 animate-in fade-in slide-in-from-bottom-4">
-                     <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                     </div>
-                     <h3 className="text-lg font-bold text-slate-900">Inga avvikelser!</h3>
-                     <p className="text-slate-600 mt-1 text-sm">Alla dina registrerade värden ligger inom referensintervallet.</p>
+
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-0">
+                     <button
+                        onClick={() => setStatusFilter('attention')}
+                        className={cx(
+                           'px-4 h-11 rounded-2xl text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1.5',
+                           statusFilter === 'attention' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-900/10 hover:bg-slate-50'
+                        )}
+                     >
+                        Avvikande
+                        {stats.attentionMarkers.length > 0 && (
+                          <span className={cx("px-1.5 py-0.5 rounded-full text-[10px]", statusFilter === 'attention' ? 'bg-black/20 text-white' : 'bg-amber-100 text-amber-800')}>
+                            {stats.attentionMarkers.length}
+                          </span>
+                        )}
+                     </button>
+
                      <button
                         onClick={() => setStatusFilter('all')}
-                        className="mt-6 px-6 py-3 bg-slate-900 rounded-full text-sm font-bold text-white shadow-lg shadow-slate-900/20 hover:bg-slate-800"
+                        className={cx(
+                           'px-4 h-11 rounded-2xl text-xs font-bold whitespace-nowrap transition-colors',
+                           statusFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-900/10 hover:bg-slate-50'
+                        )}
                      >
-                        Visa alla värden
+                        Alla värden
                      </button>
+
+                     <div className="w-px bg-slate-300 mx-1 h-6 self-center" />
+                     <select
+                       value={sortMode}
+                       onChange={(e) => setSortMode(e.target.value as SortMode)}
+                       className="h-11 rounded-2xl bg-white ring-1 ring-slate-900/10 px-4 text-xs font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                     >
+                       <option value="attention">Viktigast</option>
+                       <option value="recent">Senast</option>
+                       <option value="az">A–Ö</option>
+                     </select>
                   </div>
-               ) : (
-                  <div className="text-center py-16 px-4">
-                    <h3 className="text-lg font-bold text-slate-900">Inga träffar</h3>
-                    <p className="text-slate-600 mt-1 text-sm">Justera sök/filter eller återställ.</p>
-                    <button
-                       onClick={() => { setQuery(''); setStatusFilter('all'); }}
-                       className="mt-4 px-4 py-2 bg-slate-100 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-200"
-                    >
-                      Rensa filter
-                    </button>
+              </section>
+
+              {loadingData ? (
+                <div className="py-10 flex justify-center">
+                  <div className="animate-pulse flex flex-col items-center w-full max-w-2xl">
+                    <div className="h-4 w-44 bg-slate-200 rounded mb-4" />
+                    <div className="h-24 w-full bg-slate-200 rounded-3xl" />
+                    <div className="h-24 w-full bg-slate-200 rounded-3xl mt-3" />
                   </div>
-               )
-            ) : (
-              <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                {statusFilter === 'all' ? (
-                  groupedData.map(({ category, markers }) => (
-                    <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} />
-                  ))
-                ) : (
-                  <div className="flex flex-col gap-3 px-1">
-                    {filteredDashboardData.map(marker => (
-                       <BloodMarkerCard key={marker.id} data={marker} onClick={() => setSelectedMarkerId(marker.id)} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {!hasAnyTrackedData ? (
+                    <div className="py-10 px-1">
+                      {/* Empty state content ... same as before ... */}
+                      <div className="rounded-[2rem] bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-6">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
+                          <div className="min-w-0">
+                            <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                              Kom igång med din första provtagning
+                            </h3>
+                            <p className="text-slate-600 mt-2 text-sm max-w-xl">
+                              Importera ett provsvar (snabbast) eller lägg in värden manuellt.
+                            </p>
+                            <div className="mt-5 grid sm:grid-cols-3 gap-3 max-w-2xl">
+                              {[
+                                { t: '1) Importera', d: 'Klistra in/adda provsvar' },
+                                { t: '2) Se status', d: 'Avvikande vs inom ref' },
+                                { t: '3) Följ trenden', d: 'Se förbättring över tid' },
+                              ].map((x) => (
+                                <div key={x.t} className="rounded-3xl bg-white ring-1 ring-slate-900/5 shadow-sm p-4">
+                                  <div className="text-sm font-bold text-slate-900 tracking-tight">{x.t}</div>
+                                  <div className="text-xs text-slate-500 mt-1">{x.d}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-3 w-full sm:w-[16rem]">
+                            <button onClick={() => setIsImportModalOpen(true)} className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10">Importera provsvar</button>
+                            <button onClick={() => { setPrefillMarkerId(null); setIsModalOpen(true); }} className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-white ring-1 ring-slate-900/10 hover:bg-slate-50">Lägg till manuellt</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : !hasFilteredResults ? (
+                     statusFilter === 'attention' && !query ? (
+                        <div className="text-center py-16 px-4 animate-in fade-in slide-in-from-bottom-4">
+                           <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                              <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                           </div>
+                           <h3 className="text-lg font-bold text-slate-900">Inga avvikelser!</h3>
+                           <p className="text-slate-600 mt-1 text-sm">Alla dina registrerade värden ligger inom referensintervallet.</p>
+                           <button onClick={() => setStatusFilter('all')} className="mt-6 px-6 py-3 bg-slate-900 rounded-full text-sm font-bold text-white shadow-lg shadow-slate-900/20 hover:bg-slate-800">Visa alla värden</button>
+                        </div>
+                     ) : (
+                        <div className="text-center py-16 px-4">
+                          <h3 className="text-lg font-bold text-slate-900">Inga träffar</h3>
+                          <button onClick={() => { setQuery(''); setStatusFilter('all'); }} className="mt-4 px-4 py-2 bg-slate-100 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-200">Rensa filter</button>
+                        </div>
+                     )
+                  ) : (
+                    <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                      {statusFilter === 'all' ? (
+                        groupedData.map(({ category, markers }) => (
+                          <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} />
+                        ))
+                      ) : (
+                        <div className="flex flex-col gap-3 px-1">
+                          {filteredDashboardData.map(marker => (
+                             <BloodMarkerCard key={marker.id} data={marker} onClick={() => setSelectedMarkerId(marker.id)} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+           </>
         )}
       </main>
       

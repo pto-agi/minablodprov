@@ -57,8 +57,21 @@ export interface MeasurementTodo {
   task: string;
   done: boolean;
   dueDate?: string | null; // New field for deadline
+  linkedJournalId?: string | null; // New: Link to a plan/journal entry
   createdAt: string;
   updatedAt: string;
+}
+
+export interface JournalPlan {
+  id: string;
+  title: string;
+  content: string; // HTML body
+  createdAt: string;
+  updatedAt: string;
+  startDate?: string; // New
+  targetDate?: string; // New (Plan slutförd/Mål)
+  isPinned: boolean;
+  linkedMarkerIds: string[];
 }
 
 export interface MarkerHistory extends BloodMarker {
