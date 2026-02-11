@@ -8,12 +8,13 @@ import {
   MarkerNote,
   MeasurementTodo,
 } from './types';
-import { getStatus, safeFloat } from './utils';
+import { getStatus, safeFloat, formatNumber } from './utils';
 import BloodMarkerCard from './components/BloodMarkerCard';
 import DetailView from './components/DetailView';
 import NewMeasurementModal from './components/NewMeasurementModal';
 import StatsOverview from './components/StatsOverview';
 import OptimizedListModal from './components/OptimizedListModal';
+import ActionList from './components/ActionList';
 import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
 import ImportModal from './components/ImportModal';
@@ -49,6 +50,65 @@ const statusRank = (status: string | undefined) => {
     default:
       return 3;
   }
+};
+
+type ToastType = 'success' | 'error' | 'info';
+
+type ToastState = {
+  type: ToastType;
+  title: string;
+  message?: string;
+};
+
+const humanizeSupabaseError = (err: any) => {
+  const raw = (err?.message || err?.error_description || err?.hint || String(err || '')).toString();
+  const msg = raw.trim() || 'Okänt fel';
+  const lower = msg.toLowerCase();
+
+  if (lower.includes('row level security') || lower.includes('violates row-level security')) {
+    return 'Åtkomst nekad (Row Level Security). Kontrollera policies för tabellen.';
+  }
+  if (lower.includes('permission denied')) {
+    return 'Åtkomst nekad. Kontrollera behörigheter/policies.';
+  }
+  if (lower.includes('foreign key')) {
+    return 'Kunde inte spara (ogiltig koppling).';
+  }
+  if (lower.includes('duplicate key')) {
+    return 'Det finns redan en post med samma värde.';
+  }
+
+  return msg;
+};
+
+const Toast: React.FC<ToastState & { onClose: () => void }> = ({ type, title, message, onClose }) => {
+  const tint =
+    type === 'success' ? 'bg-emerald-600 text-white' : type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-white';
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] w-[92vw] max-w-md">
+      <div className={cx('rounded-2xl shadow-xl ring-1 ring-black/10 px-4 py-3 flex items-start gap-3', tint)}>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold leading-tight">{title}</div>
+          {message && <div className="text-xs opacity-90 mt-1 leading-snug">{message}</div>}
+        </div>
+        <button
+          onClick={onClose}
+          className="shrink-0 w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center"
+          aria-label="Stäng"
+          type="button"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fillRule="evenodd"
+              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
 };
 
 // --- Category accordion ---
@@ -143,6 +203,44 @@ const App: React.FC = () => {
   const [prefillMarkerId, setPrefillMarkerId] = useState<string | null>(null);
   const [isOptimizedModalOpen, setIsOptimizedModalOpen] = useState(false);
 
+  // DB capability flags
+  const [dbCapabilities, setDbCapabilities] = useState({
+    markerNotes: true,
+    todos: true,
+  });
+
+  // Toast
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const toastTimer = useRef<number | null>(null);
+
+  const showToast = useCallback((t: ToastState, autoHideMs = 4200) => {
+    setToast(t);
+    if (typeof window === 'undefined') return;
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), autoHideMs);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current && typeof window !== 'undefined') {
+        window.clearTimeout(toastTimer.current);
+      }
+    };
+  }, []);
+
+  // Notification State for Optimized Events
+  const [seenOptimizedCount, setSeenOptimizedCount] = useState<number>(0);
+
+  const optimizedSeenKey = useMemo(() => {
+    const uid = session?.user?.id;
+    return uid ? `hj_seen_optimized_count:${uid}` : 'hj_seen_optimized_count:anon';
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setSeenOptimizedCount(Number(localStorage.getItem(optimizedSeenKey) || 0));
+  }, [optimizedSeenKey]);
+
   // Data
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [bloodMarkers, setBloodMarkers] = useState<BloodMarker[]>([]);
@@ -154,7 +252,7 @@ const App: React.FC = () => {
 
   // UX
   const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('attention'); // Default to attention
   const [sortMode, setSortMode] = useState<SortMode>('attention');
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -214,24 +312,25 @@ const App: React.FC = () => {
       if (markersRes.error) throw markersRes.error;
       if (measurementsRes.error) throw measurementsRes.error;
 
-      // Notes/todos may be missing tables before SQL has run
+      const notesOk = !notesRes.error;
+      const todosOk = !todosRes.error;
+
+      setDbCapabilities({ markerNotes: notesOk, todos: todosOk });
+
       if (notesRes.error) missing.push(`marker_notes (${notesRes.error.message})`);
       if (todosRes.error) missing.push(`measurement_todos (${todosRes.error.message})`);
 
       const markersData = markersRes.data ?? [];
       const measureData = measurementsRes.data ?? [];
-      const notesData = notesRes.data ?? [];
-      const todosData = todosRes.data ?? [];
+      const notesData = notesOk ? (notesRes.data ?? []) : [];
+      const todosData = todosOk ? (todosRes.data ?? []) : [];
 
       const mappedMarkers: BloodMarker[] = markersData.map((m: any) => {
-        // Use safeFloat to handle possible strings with commas from DB
         const minRef = safeFloat(m.min_ref);
         const maxRef = safeFloat(m.max_ref);
         const displayMinRaw = safeFloat(m.display_min);
         const displayMaxRaw = safeFloat(m.display_max);
 
-        // If minRef/maxRef are valid numbers, calculate defaults. 
-        // If minRef is 0, we avoid multiplying 0 * 0.5 as that is still 0.
         const displayMin = displayMinRaw > 0 
            ? displayMinRaw 
            : (minRef > 0 ? minRef * 0.5 : maxRef > 0 ? maxRef * 0.1 : 0);
@@ -251,13 +350,17 @@ const App: React.FC = () => {
           description: m.description || 'Ingen beskrivning tillgänglig.',
           displayMin,
           displayMax,
+          recommendationLow: m.recommendation_low ?? undefined,
+          recommendationHigh: m.recommendation_high ?? undefined,
+          riskLow: m.risk_low ?? undefined,
+          riskHigh: m.risk_high ?? undefined,
         };
       });
 
       const mappedMeasurements: Measurement[] = measureData.map((item: any) => ({
         id: item.id,
         markerId: item.marker_id,
-        value: safeFloat(item.value), // Ensure value is a proper number
+        value: safeFloat(item.value),
         date: item.measured_at,
         note: item.note ?? null,
       }));
@@ -280,27 +383,32 @@ const App: React.FC = () => {
 
       setBloodMarkers(mappedMarkers);
       setMeasurements(mappedMeasurements);
-      setMarkerNotes(missing.length ? [] : mappedNotes);
-      setTodos(missing.length ? [] : mappedTodos);
+      setMarkerNotes(mappedNotes);
+      setTodos(mappedTodos);
 
       if (missing.length) {
         setDataError(
-          'DB saknar tabeller/policies för pro-funktioner.\n' +
-            'Kör SQL-migrationen (marker_notes + measurement_todos) och ladda om.\n\n' +
+          'DB saknar tabeller/policies för vissa funktioner.\n' +
+            'Kör SQL-migrationen och kontrollera RLS-policies.\n\n' +
             missing.join('\n'),
         );
+      } else {
+        setDataError(null);
       }
     } catch (error: any) {
       console.error('Error fetching data:', error);
-      setDataError('Kunde inte hämta data. Kontrollera anslutningen och att RLS/policies är korrekt.');
+      const msg = humanizeSupabaseError(error);
+      setDataError(`Kunde inte hämta data. ${msg}`);
+      // När fetch failar vill vi inte felaktigt “stänga av” features
+      setDbCapabilities({ markerNotes: true, todos: true });
     } finally {
       setLoadingData(false);
     }
-  }, [session?.user]);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (session?.user) fetchData();
-  }, [session?.user, fetchData]);
+  }, [session?.user?.id, fetchData]);
 
   // Realtime sync
   useEffect(() => {
@@ -317,7 +425,7 @@ const App: React.FC = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [session?.user, fetchData]);
+  }, [session?.user?.id, fetchData]);
 
   const measurementsByMarkerId = useMemo(() => {
     const map = new Map<string, Measurement[]>();
@@ -375,6 +483,20 @@ const App: React.FC = () => {
     return out;
   }, [bloodMarkers, measurementsByMarkerId, notesByMarkerId]);
 
+  const activeTodosWithContext = useMemo(() => {
+    return todos
+      .filter(t => !t.done)
+      .map(t => {
+        const measurement = measurements.find(m => m.id === t.measurementId);
+        const marker = measurement ? bloodMarkers.find(b => b.id === measurement.markerId) : null;
+        return {
+          ...t,
+          markerName: marker?.name,
+          markerId: marker?.id
+        };
+      });
+  }, [todos, measurements, bloodMarkers]);
+
   const stats = useMemo(() => {
     const optimizedEvents: OptimizationEvent[] = [];
     const attentionMarkers: MarkerHistory[] = [];
@@ -412,10 +534,14 @@ const App: React.FC = () => {
     });
 
     optimizedEvents.sort((a, b) => ts(b.goodDate) - ts(a.goodDate));
-    // Sort attention markers by priority (High/Low first) then name
     attentionMarkers.sort((a, b) => a.name.localeCompare(b.name));
 
-    return { optimizedEvents, attentionMarkers, normalCount, totalCount: dashboardData.length };
+    return { 
+      optimizedEvents, 
+      attentionMarkers, 
+      normalCount, 
+      totalCount: dashboardData.length,
+    };
   }, [dashboardData]);
 
   const selectedMarkerData = useMemo(
@@ -481,12 +607,23 @@ const App: React.FC = () => {
     return entries;
   }, [filteredDashboardData]);
 
+  // Notification Logic for Optimized Events
+  const totalOptimizedCount = stats.optimizedEvents.length;
+  // If user has seen fewer than current total, the difference is "new"
+  const newOptimizedCount = Math.max(0, totalOptimizedCount - seenOptimizedCount);
+
+  const handleOpenOptimizedEvents = () => {
+    setIsOptimizedModalOpen(true);
+    // Mark as seen
+    setSeenOptimizedCount(totalOptimizedCount);
+    localStorage.setItem(optimizedSeenKey, String(totalOptimizedCount));
+  };
+
   // -----------------------------
   // UX Handlers
   // -----------------------------
   const handleAttentionClick = useCallback(() => {
     setStatusFilter('attention');
-    // Optional: scroll to list
     const el = document.getElementById('marker-list-top');
     if (el) el.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -498,52 +635,73 @@ const App: React.FC = () => {
     async (markerId: string, value: number, date: string, note?: string) => {
       if (!session?.user) return;
 
-      const payload: any = {
-        user_id: session.user.id,
-        marker_id: markerId,
-        value,
-        measured_at: date,
-        note: note?.trim() ? note.trim() : null,
-      };
+      try {
+        const payload: any = {
+          user_id: session.user.id,
+          marker_id: markerId,
+          value,
+          measured_at: date,
+          note: note?.trim() ? note.trim() : null,
+        };
 
-      const { error } = await supabase.from('measurements').insert([payload]);
-      if (error) throw error;
+        const { error } = await supabase.from('measurements').insert([payload]);
+        if (error) throw error;
 
-      await fetchData();
+        await fetchData();
+        showToast({ type: 'success', title: 'Sparat', message: 'Mätningen är sparad.' });
+      } catch (err) {
+        console.error('Error saving measurement:', err);
+        showToast({ type: 'error', title: 'Kunde inte spara mätningen', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast],
   );
 
   const handleDeleteMeasurement = useCallback(
     async (measurementId: string) => {
       if (!session?.user) return;
-      
-      const { error } = await supabase
-        .from('measurements')
-        .delete()
-        .eq('id', measurementId)
-        .eq('user_id', session.user.id);
 
-      if (error) throw error;
-      await fetchData();
+      try {
+        const { error } = await supabase
+          .from('measurements')
+          .delete()
+          .eq('id', measurementId)
+          .eq('user_id', session.user.id);
+
+        if (error) throw error;
+        await fetchData();
+        showToast({ type: 'success', title: 'Borttaget', message: 'Mätningen togs bort.' });
+      } catch (err) {
+        console.error('Error deleting measurement:', err);
+        showToast({ type: 'error', title: 'Kunde inte ta bort mätningen', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData]
+    [session?.user, fetchData, showToast],
   );
 
   const handleUpdateMeasurement = useCallback(
     async (measurementId: string, value: number, date: string) => {
       if (!session?.user) return;
-      
-      const { error } = await supabase
-        .from('measurements')
-        .update({ value: value, measured_at: date })
-        .eq('id', measurementId)
-        .eq('user_id', session.user.id);
 
-      if (error) throw error;
-      await fetchData();
+      try {
+        const { error } = await supabase
+          .from('measurements')
+          .update({ value: value, measured_at: date })
+          .eq('id', measurementId)
+          .eq('user_id', session.user.id);
+
+        if (error) throw error;
+        await fetchData();
+        showToast({ type: 'success', title: 'Uppdaterat', message: 'Mätningen är uppdaterad.' });
+      } catch (err) {
+        console.error('Error updating measurement:', err);
+        showToast({ type: 'error', title: 'Kunde inte uppdatera mätningen', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData]
+    [session?.user, fetchData, showToast],
   );
 
   const handleBulkSaveMeasurements = useCallback(
@@ -551,70 +709,126 @@ const App: React.FC = () => {
       if (!session?.user) return;
       if (items.length === 0) return;
 
-      const payload = items.map(item => ({
-        user_id: session.user.id,
-        marker_id: item.markerId,
-        value: item.value,
-        measured_at: item.date,
-        note: 'Importerat via AI',
-      }));
+      try {
+        const payload = items.map((item) => ({
+          user_id: session.user.id,
+          marker_id: item.markerId,
+          value: item.value,
+          measured_at: item.date,
+          note: 'Importerat via AI',
+        }));
 
-      const { error } = await supabase.from('measurements').insert(payload);
-      if (error) throw error;
+        const { error } = await supabase.from('measurements').insert(payload);
+        if (error) throw error;
 
-      await fetchData();
+        await fetchData();
+        showToast({ type: 'success', title: 'Import klart', message: 'Mätningarna är sparade.' });
+      } catch (err) {
+        console.error('Error bulk saving measurements:', err);
+        showToast({ type: 'error', title: 'Kunde inte importera', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData]
+    [session?.user, fetchData, showToast],
   );
 
   const handleCreateMarkerNote = useCallback(
     async (markerId: string, note: string) => {
       if (!session?.user) return;
 
+      if (!dbCapabilities.markerNotes) {
+        showToast({
+          type: 'error',
+          title: 'Anteckningar är inte aktiverade',
+          message: 'Tabellen/policys för marker_notes saknas i databasen.',
+        });
+        return;
+      }
+
       const clean = note.trim();
       if (!clean) return;
 
-      const { error } = await supabase.from('marker_notes').insert([
-        { user_id: session.user.id, marker_id: markerId, note: clean },
-      ]);
-      if (error) throw error;
+      try {
+        const { error } = await supabase.from('marker_notes').insert([
+          { user_id: session.user.id, marker_id: markerId, note: clean },
+        ]);
+        if (error) throw error;
 
-      await fetchData();
+        await fetchData();
+        showToast({ type: 'success', title: 'Sparat', message: 'Anteckningen är sparad.' });
+      } catch (err) {
+        console.error('Error creating marker note:', err);
+        showToast({ type: 'error', title: 'Kunde inte spara anteckningen', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast, dbCapabilities.markerNotes],
   );
 
   const handleUpdateMarkerNote = useCallback(
     async (noteId: string, note: string) => {
       if (!session?.user) return;
+
+      if (!dbCapabilities.markerNotes) {
+        showToast({
+          type: 'error',
+          title: 'Anteckningar är inte aktiverade',
+          message: 'Tabellen/policys för marker_notes saknas i databasen.',
+        });
+        return;
+      }
+
       const clean = note.trim();
 
-      const { error } = await supabase
-        .from('marker_notes')
-        .update({ note: clean })
-        .eq('id', noteId)
-        .eq('user_id', session.user.id);
+      try {
+        const { error } = await supabase
+          .from('marker_notes')
+          .update({ note: clean })
+          .eq('id', noteId)
+          .eq('user_id', session.user.id);
 
-      if (error) throw error;
-      await fetchData();
+        if (error) throw error;
+        await fetchData();
+        showToast({ type: 'success', title: 'Uppdaterat', message: 'Anteckningen är uppdaterad.' });
+      } catch (err) {
+        console.error('Error updating marker note:', err);
+        showToast({ type: 'error', title: 'Kunde inte uppdatera anteckningen', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast, dbCapabilities.markerNotes],
   );
 
   const handleDeleteMarkerNote = useCallback(
     async (noteId: string) => {
       if (!session?.user) return;
 
-      const { error } = await supabase
-        .from('marker_notes')
-        .delete()
-        .eq('id', noteId)
-        .eq('user_id', session.user.id);
+      if (!dbCapabilities.markerNotes) {
+        showToast({
+          type: 'error',
+          title: 'Anteckningar är inte aktiverade',
+          message: 'Tabellen/policys för marker_notes saknas i databasen.',
+        });
+        return;
+      }
 
-      if (error) throw error;
-      await fetchData();
+      try {
+        const { error } = await supabase
+          .from('marker_notes')
+          .delete()
+          .eq('id', noteId)
+          .eq('user_id', session.user.id);
+
+        if (error) throw error;
+        await fetchData();
+        showToast({ type: 'success', title: 'Borttaget', message: 'Anteckningen är borttagen.' });
+      } catch (err) {
+        console.error('Error deleting marker note:', err);
+        showToast({ type: 'error', title: 'Kunde inte ta bort anteckningen', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast, dbCapabilities.markerNotes],
   );
 
   const handleUpdateMeasurementNote = useCallback(
@@ -623,92 +837,170 @@ const App: React.FC = () => {
 
       const value = noteOrNull?.trim() ? noteOrNull.trim() : null;
 
-      const { error } = await supabase
-        .from('measurements')
-        .update({ note: value })
-        .eq('id', measurementId)
-        .eq('user_id', session.user.id);
+      try {
+        const { error } = await supabase
+          .from('measurements')
+          .update({ note: value })
+          .eq('id', measurementId)
+          .eq('user_id', session.user.id);
 
-      if (error) throw error;
-      await fetchData();
+        if (error) throw error;
+        await fetchData();
+        showToast({ type: 'success', title: 'Sparat', message: 'Kommentaren är sparad.' });
+      } catch (err) {
+        console.error('Error updating measurement note:', err);
+        showToast({ type: 'error', title: 'Kunde inte spara kommentaren', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast],
   );
 
   const handleAddTodo = useCallback(
     async (measurementId: string, task: string) => {
       if (!session?.user) return;
+
+      if (!dbCapabilities.todos) {
+        showToast({
+          type: 'error',
+          title: 'Uppgifter är inte aktiverade',
+          message: 'Tabellen/policys för measurement_todos saknas i databasen.',
+        });
+        return;
+      }
+
       const clean = task.trim();
       if (!clean) return;
 
-      const { error } = await supabase.from('measurement_todos').insert([
-        { user_id: session.user.id, measurement_id: measurementId, task: clean },
-      ]);
-      if (error) throw error;
+      try {
+        const { error } = await supabase.from('measurement_todos').insert([
+          { user_id: session.user.id, measurement_id: measurementId, task: clean },
+        ]);
+        if (error) throw error;
 
-      await fetchData();
+        await fetchData();
+        showToast({ type: 'success', title: 'Sparat', message: 'Uppgiften är sparad.' });
+      } catch (err) {
+        console.error('Error adding todo:', err);
+        showToast({ type: 'error', title: 'Kunde inte spara uppgiften', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast, dbCapabilities.todos],
   );
 
   const handleToggleTodo = useCallback(
     async (todoId: string, done: boolean) => {
       if (!session?.user) return;
 
-      const { error } = await supabase
-        .from('measurement_todos')
-        .update({ is_done: done })
-        .eq('id', todoId)
-        .eq('user_id', session.user.id);
+      if (!dbCapabilities.todos) {
+        showToast({
+          type: 'error',
+          title: 'Uppgifter är inte aktiverade',
+          message: 'Tabellen/policys för measurement_todos saknas i databasen.',
+        });
+        return;
+      }
 
-      if (error) throw error;
-      await fetchData();
+      try {
+        const { error } = await supabase
+          .from('measurement_todos')
+          .update({ is_done: done })
+          .eq('id', todoId)
+          .eq('user_id', session.user.id);
+
+        if (error) throw error;
+        await fetchData();
+      } catch (err) {
+        console.error('Error toggling todo:', err);
+        showToast({ type: 'error', title: 'Kunde inte uppdatera uppgiften', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast, dbCapabilities.todos],
   );
 
   const handleUpdateTodo = useCallback(
     async (todoId: string, task: string) => {
       if (!session?.user) return;
+
+      if (!dbCapabilities.todos) {
+        showToast({
+          type: 'error',
+          title: 'Uppgifter är inte aktiverade',
+          message: 'Tabellen/policys för measurement_todos saknas i databasen.',
+        });
+        return;
+      }
+
       const clean = task.trim();
       if (!clean) return;
 
-      const { error } = await supabase
-        .from('measurement_todos')
-        .update({ task: clean })
-        .eq('id', todoId)
-        .eq('user_id', session.user.id);
+      try {
+        const { error } = await supabase
+          .from('measurement_todos')
+          .update({ task: clean })
+          .eq('id', todoId)
+          .eq('user_id', session.user.id);
 
-      if (error) throw error;
-      await fetchData();
+        if (error) throw error;
+        await fetchData();
+        showToast({ type: 'success', title: 'Uppdaterat', message: 'Uppgiften är uppdaterad.' });
+      } catch (err) {
+        console.error('Error updating todo:', err);
+        showToast({ type: 'error', title: 'Kunde inte uppdatera uppgiften', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast, dbCapabilities.todos],
   );
 
   const handleDeleteTodo = useCallback(
     async (todoId: string) => {
       if (!session?.user) return;
 
-      const { error } = await supabase
-        .from('measurement_todos')
-        .delete()
-        .eq('id', todoId)
-        .eq('user_id', session.user.id);
+      if (!dbCapabilities.todos) {
+        showToast({
+          type: 'error',
+          title: 'Uppgifter är inte aktiverade',
+          message: 'Tabellen/policys för measurement_todos saknas i databasen.',
+        });
+        return;
+      }
 
-      if (error) throw error;
-      await fetchData();
+      try {
+        const { error } = await supabase
+          .from('measurement_todos')
+          .delete()
+          .eq('id', todoId)
+          .eq('user_id', session.user.id);
+
+        if (error) throw error;
+        await fetchData();
+        showToast({ type: 'success', title: 'Borttaget', message: 'Uppgiften är borttagen.' });
+      } catch (err) {
+        console.error('Error deleting todo:', err);
+        showToast({ type: 'error', title: 'Kunde inte ta bort uppgiften', message: humanizeSupabaseError(err) });
+        throw err;
+      }
     },
-    [session?.user, fetchData],
+    [session?.user, fetchData, showToast, dbCapabilities.todos],
   );
 
   const handleSignOut = useCallback(async () => {
-    await supabase.auth.signOut();
-    setMeasurements([]);
-    setBloodMarkers([]);
-    setMarkerNotes([]);
-    setTodos([]);
-    setSelectedMarkerId(null);
-    setShowAuth(false);
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      setMeasurements([]);
+      setBloodMarkers([]);
+      setMarkerNotes([]);
+      setTodos([]);
+      setSelectedMarkerId(null);
+      setShowAuth(false);
+      setSeenOptimizedCount(0);
+      setDbCapabilities({ markerNotes: true, todos: true });
+      setToast(null);
+    }
   }, []);
 
   const handleRefresh = useCallback(async () => {
@@ -790,15 +1082,15 @@ const App: React.FC = () => {
       </div>
 
       <header className="border-b border-slate-200/70 sticky top-0 z-30 bg-white/70 backdrop-blur-xl">
-        <div className="max-w-3xl mx-auto px-5 py-4 flex justify-between items-center">
+        <div className="max-w-6xl mx-auto px-5 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3 min-w-0">
             <div className="relative w-10 h-10 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 flex items-center justify-center text-white font-extrabold shadow-sm">
-              <span className="font-display tracking-tight">HJ</span>
+              <span className="font-display tracking-tight">BW</span>
               <div className="absolute inset-0 rounded-2xl ring-1 ring-white/15" />
             </div>
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-display font-bold text-slate-900 tracking-tight leading-tight">
-                HälsoJournalen
+                bloodwork.se
               </h1>
               <p className="text-[11px] sm:text-xs text-slate-500 font-medium leading-tight">
                 Biomarker dashboard • <span className="font-mono">pro</span>
@@ -846,7 +1138,25 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 pt-6 relative" id="marker-list-top">
+      <main className="max-w-6xl mx-auto px-4 pt-6 relative" id="marker-list-top">
+        
+        {/* DATA / DB WARNINGS */}
+        {dataError && (
+          <div className="mb-5 px-1">
+            <div className="rounded-3xl bg-amber-50 ring-1 ring-amber-900/10 p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-2xl bg-white ring-1 ring-amber-900/10 flex items-center justify-center">
+                  <span className="text-amber-700 font-extrabold">!</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-amber-900">Begränsad funktionalitet</div>
+                  <div className="text-xs text-amber-900/80 mt-1 whitespace-pre-line">{dataError}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         
         {/* NEW DASHBOARD HERO */}
         {!loadingData && hasAnyTrackedData && (
@@ -855,13 +1165,24 @@ const App: React.FC = () => {
             normalCount={stats.normalCount}
             attentionMarkers={stats.attentionMarkers}
             optimizedCount={stats.optimizedEvents.length}
-            onOptimizedClick={() => setIsOptimizedModalOpen(true)}
+            onOptimizedClick={handleOpenOptimizedEvents}
             onAttentionClick={handleAttentionClick}
+            newOptimizedCount={newOptimizedCount}
+          />
+        )}
+        
+        {/* NEW: ACTIVE ACTION LIST (TODOS) */}
+        {!loadingData && activeTodosWithContext.length > 0 && (
+          <ActionList 
+            todos={activeTodosWithContext}
+            onToggle={handleToggleTodo}
+            onSelectMarker={setSelectedMarkerId}
           />
         )}
 
         {/* TOOLBAR / FILTERS */}
         <section className="mb-6 px-1 flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+            {/* Search Input */}
             <div className="relative flex-1">
                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -886,15 +1207,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-0">
-               <button
-                  onClick={() => setStatusFilter('all')}
-                  className={cx(
-                     'px-4 h-11 rounded-2xl text-xs font-bold whitespace-nowrap transition-colors',
-                     statusFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-900/10 hover:bg-slate-50'
-                  )}
-               >
-                  Alla
-               </button>
+               {/* SWAPPED BUTTONS: Avvikande first */}
                <button
                   onClick={() => setStatusFilter('attention')}
                   className={cx(
@@ -909,6 +1222,17 @@ const App: React.FC = () => {
                     </span>
                   )}
                </button>
+
+               <button
+                  onClick={() => setStatusFilter('all')}
+                  className={cx(
+                     'px-4 h-11 rounded-2xl text-xs font-bold whitespace-nowrap transition-colors',
+                     statusFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-900/10 hover:bg-slate-50'
+                  )}
+               >
+                  Alla värden
+               </button>
+
                <div className="w-px bg-slate-300 mx-1 h-6 self-center" />
                <select
                  value={sortMode}
@@ -933,23 +1257,90 @@ const App: React.FC = () => {
         ) : (
           <div className="flex flex-col gap-2">
             {!hasAnyTrackedData ? (
-              <div className="text-center py-20 px-4">
-                <h3 className="text-lg font-bold text-slate-900">Inga värden registrerade</h3>
-                <p className="text-slate-600 mt-1 max-w-sm mx-auto text-sm">
-                  Lägg till din första mätning för att få ref, historik och logg.
-                </p>
+              <div className="py-10 px-1">
+                <div className="rounded-[2rem] bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-6">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-5">
+                    <div className="min-w-0">
+                      <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                        Kom igång med din första provtagning
+                      </h3>
+                      <p className="text-slate-600 mt-2 text-sm max-w-xl">
+                        Importera ett provsvar (snabbast) eller lägg in värden manuellt. När du har data får du status mot referens,
+                        fokusområden som prioriterar rätt och milstolpar när du förbättrar.
+                      </p>
+
+                      <div className="mt-5 grid sm:grid-cols-3 gap-3 max-w-2xl">
+                        {[
+                          { t: '1) Importera', d: 'Klistra in/adda provsvar' },
+                          { t: '2) Se status', d: 'Avvikande vs inom ref' },
+                          { t: '3) Följ trenden', d: 'Se förbättring över tid' },
+                        ].map((x) => (
+                          <div key={x.t} className="rounded-3xl bg-white ring-1 ring-slate-900/5 shadow-sm p-4">
+                            <div className="text-sm font-bold text-slate-900 tracking-tight">{x.t}</div>
+                            <div className="text-xs text-slate-500 mt-1">{x.d}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <p className="mt-5 text-xs text-slate-500">
+                        Tips: Tryck <span className="font-mono">Ctrl/Cmd + K</span> för att söka bland markörer.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-3 w-full sm:w-[16rem]">
+                      <button
+                        onClick={() => setIsImportModalOpen(true)}
+                        className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10"
+                        type="button"
+                      >
+                        Importera provsvar
+                      </button>
+                      <button
+                        onClick={() => {
+                          setPrefillMarkerId(null);
+                          setIsModalOpen(true);
+                        }}
+                        className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-white ring-1 ring-slate-900/10 hover:bg-slate-50"
+                        type="button"
+                      >
+                        Lägg till manuellt
+                      </button>
+
+                      <div className="text-[11px] text-slate-500 leading-snug">
+                        Ingen medicinsk rådgivning – verktyg för spårning, struktur och motivation.
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : !hasFilteredResults ? (
-              <div className="text-center py-16 px-4">
-                <h3 className="text-lg font-bold text-slate-900">Inga träffar</h3>
-                <p className="text-slate-600 mt-1 text-sm">Justera sök/filter eller återställ.</p>
-                <button
-                   onClick={() => { setQuery(''); setStatusFilter('all'); }}
-                   className="mt-4 px-4 py-2 bg-slate-100 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-200"
-                >
-                  Rensa filter
-                </button>
-              </div>
+               // UPDATED NO RESULTS LOGIC: Handle "All good" state gracefully
+               statusFilter === 'attention' && !query ? (
+                  <div className="text-center py-16 px-4 animate-in fade-in slide-in-from-bottom-4">
+                     <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                     </div>
+                     <h3 className="text-lg font-bold text-slate-900">Inga avvikelser!</h3>
+                     <p className="text-slate-600 mt-1 text-sm">Alla dina registrerade värden ligger inom referensintervallet.</p>
+                     <button
+                        onClick={() => setStatusFilter('all')}
+                        className="mt-6 px-6 py-3 bg-slate-900 rounded-full text-sm font-bold text-white shadow-lg shadow-slate-900/20 hover:bg-slate-800"
+                     >
+                        Visa alla värden
+                     </button>
+                  </div>
+               ) : (
+                  <div className="text-center py-16 px-4">
+                    <h3 className="text-lg font-bold text-slate-900">Inga träffar</h3>
+                    <p className="text-slate-600 mt-1 text-sm">Justera sök/filter eller återställ.</p>
+                    <button
+                       onClick={() => { setQuery(''); setStatusFilter('all'); }}
+                       className="mt-4 px-4 py-2 bg-slate-100 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-200"
+                    >
+                      Rensa filter
+                    </button>
+                  </div>
+               )
             ) : (
               <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
                 {statusFilter === 'all' ? (
@@ -970,8 +1361,8 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
-
-      {/* FABs */}
+      
+      {/* ... FABs ... */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3 items-end">
         {/* Bulk Import Button */}
         <button
@@ -1034,7 +1425,9 @@ const App: React.FC = () => {
         onClose={() => setIsOptimizedModalOpen(false)}
         events={stats.optimizedEvents}
       />
-    </div>
+    
+      {toast && <Toast type={toast.type} title={toast.title} message={toast.message} onClose={() => setToast(null)} />}
+</div>
   );
 };
 

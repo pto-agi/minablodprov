@@ -1,11 +1,60 @@
-
-import React, { useState } from 'react';
-import { MarkerHistory, MeasurementTodo, Measurement } from '../types';
-import { formatDateTime, formatDate, formatNumber, getStatusTextColor } from '../utils';
+import React, { useCallback, useMemo, useState } from 'react';
+import { MarkerHistory, MeasurementTodo, Measurement, MarkerNote } from '../types';
+import { formatDateTime, formatDate, formatNumber } from '../utils';
 import HistoryChart from './HistoryChart';
 import ReferenceVisualizer from './ReferenceVisualizer';
 
+// --- HJÄLPKOMPONENTER FÖR UI (Inga externa beroenden) ---
+
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
+// Ikon-bibliotek (SVG) för att hålla koden ren
+const Icon = ({ name, className }: { name: string; className?: string }) => {
+  const icons: Record<string, React.ReactElement> = {
+    back: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />,
+    plus: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />,
+    note: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />,
+    trendUp: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />,
+    trendDown: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />,
+    trash: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />,
+    edit: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />,
+    check: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />,
+    export: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />,
+  };
+  return <svg className={cx("w-5 h-5", className)} fill="none" stroke="currentColor" viewBox="0 0 24 24">{icons[name]}</svg>;
+};
+
+// --- HJÄLPFUNKTIONER ---
+
+type ToastType = 'success' | 'error' | 'info';
+type Toast = { id: string; type: ToastType; title?: string; message: string };
+
+function safeId() {
+  const c: any = typeof crypto !== 'undefined' ? crypto : null;
+  if (c?.randomUUID) return c.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function copyToClipboard(text: string) {
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const el = document.createElement('textarea');
+  el.value = text;
+  document.body.appendChild(el);
+  el.select();
+  document.execCommand('copy');
+  document.body.removeChild(el);
+}
+
+function getRangeBadge(value: number, minRef: number, maxRef: number) {
+  if (value < minRef) return { label: 'Lågt', color: 'amber', bg: 'bg-amber-50', text: 'text-amber-800', ring: 'ring-amber-200', dot: 'bg-amber-400' };
+  if (value > maxRef) return { label: 'Högt', color: 'rose', bg: 'bg-rose-50', text: 'text-rose-800', ring: 'ring-rose-200', dot: 'bg-rose-400' };
+  return { label: 'Optimalt', color: 'emerald', bg: 'bg-emerald-50', text: 'text-emerald-800', ring: 'ring-emerald-200', dot: 'bg-emerald-400' };
+}
+
+// --- MAIN COMPONENT ---
 
 interface Props {
   data: MarkerHistory;
@@ -24,6 +73,8 @@ interface Props {
   onUpdateMeasurement?: (measurementId: string, value: number, date: string) => Promise<void>;
 }
 
+type ChartRange = '1m' | '3m' | '6m' | '1y' | 'all';
+
 const DetailView: React.FC<Props> = ({
   data,
   onBack,
@@ -31,530 +82,441 @@ const DetailView: React.FC<Props> = ({
   onSaveNote,
   onUpdateNote,
   onDeleteNote,
-  onUpdateMeasurementNote,
   todos,
   onAddTodo,
   onToggleTodo,
-  onUpdateTodo,
   onDeleteTodo,
   onDeleteMeasurement,
   onUpdateMeasurement,
 }) => {
-  // UI State
-  const [activeTab, setActiveTab] = useState<'log' | 'history'>('log');
+  // --- STATE ---
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
   
-  // Marker Note Editing
-  const [newNote, setNewNote] = useState('');
+  // UI States
+  const [chartRange, setChartRange] = useState<ChartRange>('6m');
   const [isAddingNote, setIsAddingNote] = useState(false);
-  const [editingMarkerNoteId, setEditingMarkerNoteId] = useState<string | null>(null);
-  const [editingMarkerNoteText, setEditingMarkerNoteText] = useState('');
+  const [newNoteText, setNewNoteText] = useState('');
+  
+  // Edit States
+  const [editingMeasId, setEditingMeasId] = useState<string | null>(null);
+  const [editMeasValue, setEditMeasValue] = useState('');
+  const [editMeasDate, setEditMeasDate] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<{ type: 'meas'|'note'|'todo', id: string, desc: string } | null>(null);
 
-  // Measurement Note Editing
-  const [editingMeasurementNoteId, setEditingMeasurementNoteId] = useState<string | null>(null);
-  const [editingMeasurementNoteText, setEditingMeasurementNoteText] = useState('');
+  // --- LOGIC ---
+  
+  const pushToast = useCallback((t: Omit<Toast, 'id'>) => {
+    const id = safeId();
+    setToasts(prev => [...prev, { ...t, id }]);
+    setTimeout(() => setToasts(prev => prev.filter(x => x.id !== id)), 4000);
+  }, []);
 
-  // Measurement Value/Date Editing (History)
-  const [editingHistoryId, setEditingHistoryId] = useState<string | null>(null);
-  const [editHistoryValue, setEditHistoryValue] = useState<string>('');
-  const [editHistoryDate, setEditHistoryDate] = useState<string>('');
+  const run = async (key: string, fn: () => Promise<void>, msg?: string) => {
+    setBusy(prev => ({ ...prev, [key]: true }));
+    try {
+      await fn();
+      if (msg) pushToast({ type: 'success', message: msg });
+    } catch (e) {
+      pushToast({ type: 'error', title: 'Fel', message: 'Kunde inte utföra åtgärden.' });
+    } finally {
+      setBusy(prev => ({ ...prev, [key]: false }));
+    }
+  };
 
-  // Todo Editing
-  const [newTodo, setNewTodo] = useState('');
-  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
-  const [editingTodoText, setEditingTodoText] = useState('');
+  // Data processing
+  const sortedMeasurements = useMemo(() => 
+    [...(data.measurements || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+  [data.measurements]);
 
-  const { latestMeasurement } = data;
+  const latest = sortedMeasurements[0] ?? null;
+  const previous = sortedMeasurements[1] ?? null;
 
-  // Handlers for Marker Notes
+  // Sammanfoga mätningar och anteckningar till en tidslinje (UNIFIED TIMELINE)
+  const timeline = useMemo(() => {
+    const events: Array<{ type: 'measurement' | 'note', date: string, id: string, data: any }> = [];
+    sortedMeasurements.forEach(m => events.push({ type: 'measurement', date: m.date, id: m.id, data: m }));
+    data.notes?.forEach(n => events.push({ type: 'note', date: n.date, id: n.id, data: n }));
+    return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [sortedMeasurements, data.notes]);
+
+  // Filtrera graf-data
+  const chartData = useMemo(() => {
+    if (chartRange === 'all') return [...sortedMeasurements].reverse(); // Chart vill ha stigande datum
+    const now = new Date();
+    const cutoff = new Date();
+    if (chartRange === '1m') cutoff.setMonth(now.getMonth() - 1);
+    if (chartRange === '3m') cutoff.setMonth(now.getMonth() - 3);
+    if (chartRange === '6m') cutoff.setMonth(now.getMonth() - 6);
+    if (chartRange === '1y') cutoff.setFullYear(now.getFullYear() - 1);
+    return sortedMeasurements.filter(m => new Date(m.date) >= cutoff).reverse();
+  }, [sortedMeasurements, chartRange]);
+
+  // Trend analys
+  const trend = useMemo(() => {
+    if (!latest || !previous) return null;
+    const delta = latest.value - previous.value;
+    const pct = previous.value !== 0 ? (delta / previous.value) * 100 : 0;
+    return { delta, pct, up: delta > 0 };
+  }, [latest, previous]);
+
+  // Handlers
   const handleSaveNote = async () => {
-    if (!newNote.trim()) return;
-    await onSaveNote(data.id, newNote);
-    setNewNote('');
-    setIsAddingNote(false);
+    if(!newNoteText.trim()) return;
+    await run('addNote', async () => {
+      await onSaveNote(data.id, newNoteText);
+      setNewNoteText('');
+      setIsAddingNote(false);
+    });
   };
 
-  const startEditMarkerNote = (id: string, text: string) => {
-    setEditingMarkerNoteId(id);
-    setEditingMarkerNoteText(text);
+  const handleUpdateMeasurement = async () => {
+    if (!editingMeasId || !onUpdateMeasurement) return;
+    const val = parseFloat(editMeasValue.replace(',', '.'));
+    if (isNaN(val)) return pushToast({type:'error', message: 'Ogiltigt tal'});
+    await run(`upd:${editingMeasId}`, async () => {
+      await onUpdateMeasurement(editingMeasId, val, editMeasDate);
+      setEditingMeasId(null);
+    }, 'Uppdaterat');
   };
 
-  const handleSaveMarkerNoteEdit = async () => {
-    if (!editingMarkerNoteId) return;
-    await onUpdateNote(editingMarkerNoteId, editingMarkerNoteText);
-    setEditingMarkerNoteId(null);
+  const handleDelete = async () => {
+    if(!confirmDelete) return;
+    const { type, id } = confirmDelete;
+    if(type === 'meas' && onDeleteMeasurement) await run(`del:${id}`, () => onDeleteMeasurement(id));
+    if(type === 'note') await run(`del:${id}`, () => onDeleteNote(id));
+    if(type === 'todo') await run(`del:${id}`, () => onDeleteTodo(id));
+    setConfirmDelete(null);
   };
 
-  // Handlers for Measurement Notes
-  const startEditMeasurementNote = (m: Measurement) => {
-    setEditingMeasurementNoteId(m.id);
-    setEditingMeasurementNoteText(m.note || '');
+  const handleExport = async () => {
+    const csv = ['Datum,Värde,Enhet,Anteckning', ...sortedMeasurements.map(m => `${m.date},${m.value},${data.unit},"${m.note||''}"`)].join('\n');
+    await copyToClipboard(csv);
+    pushToast({ type: 'success', message: 'Data kopierad som CSV till urklipp' });
   };
 
-  const handleSaveMeasurementNote = async () => {
-    if (!editingMeasurementNoteId) return;
-    const val = editingMeasurementNoteText.trim() || null;
-    await onUpdateMeasurementNote(editingMeasurementNoteId, val);
-    setEditingMeasurementNoteId(null);
-  };
-
-  // Handlers for Measurement Value/Date
-  const startEditHistory = (m: Measurement) => {
-    setEditingHistoryId(m.id);
-    setEditHistoryValue(m.value.toString());
-    setEditHistoryDate(m.date.split('T')[0]); // ISO date part
-  };
-
-  const cancelEditHistory = () => {
-    setEditingHistoryId(null);
-    setEditHistoryValue('');
-    setEditHistoryDate('');
-  };
-
-  const saveEditHistory = async () => {
-    if (!editingHistoryId || !onUpdateMeasurement) return;
-    const val = parseFloat(editHistoryValue);
-    if (Number.isNaN(val) || !editHistoryDate) return;
-
-    await onUpdateMeasurement(editingHistoryId, val, editHistoryDate);
-    setEditingHistoryId(null);
-  };
-
-  const handleDeleteHistoryItem = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Stop bubbling
-    e.preventDefault();
-    
-    if (!onDeleteMeasurement) {
-        console.error("Delete function missing");
-        alert("Fel: Raderingsfunktionen är inte kopplad korrekt. Ladda om sidan.");
-        return;
-    }
-
-    if (window.confirm('Är du säker på att du vill ta bort denna mätning permanent?')) {
-        try {
-            await onDeleteMeasurement(id);
-        } catch (err) {
-            console.error("Delete failed", err);
-            alert("Kunde inte ta bort mätningen. Kontrollera din anslutning eller rättigheter.");
-        }
-    }
-  };
-
-  // Handlers for Todos
-  const handleAddTodoSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!latestMeasurement || !newTodo.trim()) return;
-    await onAddTodo(latestMeasurement.id, newTodo);
-    setNewTodo('');
-  };
-
-  const startEditTodo = (t: MeasurementTodo) => {
-    setEditingTodoId(t.id);
-    setEditingTodoText(t.task);
-  };
-
-  const handleUpdateTodoSubmit = async () => {
-    if (!editingTodoId) return;
-    await onUpdateTodo(editingTodoId, editingTodoText);
-    setEditingTodoId(null);
-  };
+  // Status visual
+  const statusBadge = latest 
+    ? getRangeBadge(latest.value, data.minRef, data.maxRef) 
+    : { color: 'slate', bg: 'bg-slate-100', text: 'text-slate-600', label: 'Inga data', dot: 'bg-slate-400', ring: 'ring-slate-200' };
 
   return (
-    <div className="pb-24 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-slate-900 transition-colors bg-white/50 px-3 py-2 rounded-full ring-1 ring-slate-900/5 hover:bg-white"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Tillbaka
+    <div className="pb-32 bg-slate-50 min-h-screen animate-in fade-in duration-300">
+      
+      {/* 1. TOP NAV: Clean & Minimal */}
+      <div className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+        <button onClick={onBack} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors p-1 rounded-lg hover:bg-slate-100">
+          <Icon name="back" className="w-5 h-5" />
+          <span className="text-sm font-semibold hidden sm:inline">Tillbaka</span>
         </button>
-
-        <button
-          onClick={() => onAddMeasurement(data.id)}
-          className="rounded-full px-4 py-2 text-sm font-bold bg-slate-900 text-white hover:bg-slate-800 shadow-sm"
-        >
-          Ny mätning
+        <div className="text-sm font-bold text-slate-800 truncate max-w-[150px]">{data.name}</div>
+        <button onClick={handleExport} className="p-2 text-slate-400 hover:text-slate-900 rounded-lg hover:bg-slate-100" title="Kopiera CSV">
+          <Icon name="export" className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Hero Card */}
-      <div className="bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm rounded-3xl p-6">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-3xl font-display font-bold text-slate-900 tracking-tight">{data.name}</h2>
-            <div className="text-sm text-slate-500 mt-1 font-medium">{data.description}</div>
-            
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
-                Ref: {formatNumber(data.minRef)}–{formatNumber(data.maxRef)} {data.unit}
-              </span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
-                Kategori: {data.category}
-              </span>
-            </div>
-          </div>
-          
-          <div className="text-right shrink-0">
-             {latestMeasurement ? (
-                <div>
-                   <div className={cx("text-4xl font-display font-bold", getStatusTextColor(data.status))}>
-                      {formatNumber(latestMeasurement.value)}
-                      <span className="text-lg text-slate-400 font-medium ml-1">{data.unit}</span>
-                   </div>
-                   <div className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-wide">
-                      {formatDate(latestMeasurement.date)}
-                   </div>
-                </div>
-             ) : (
-                <div className="text-slate-400 font-medium">Inga värden än</div>
-             )}
-          </div>
-        </div>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 space-y-8">
 
-        {/* Visualizers */}
-        {latestMeasurement && (
-            <div className="mt-8">
-                <ReferenceVisualizer
-                    value={latestMeasurement.value}
-                    minRef={data.minRef}
-                    maxRef={data.maxRef}
-                    displayMin={data.displayMin}
-                    displayMax={data.displayMax}
-                    status={data.status}
-                    goalMin={data.goal?.targetMin}
-                    goalMax={data.goal?.targetMax}
-                />
-            </div>
-        )}
+        {/* 2. HERO CARD: Fokus på NU och STATUS */}
+        <section className="relative overflow-hidden rounded-[2rem] bg-white shadow-xl shadow-slate-200/50 ring-1 ring-slate-900/5 p-6 sm:p-8">
+          {/* Subtle background gradient based on status */}
+          <div className={cx("absolute top-0 right-0 w-64 h-64 bg-gradient-to-br opacity-20 blur-3xl rounded-full -mr-10 -mt-10 pointer-events-none", 
+            statusBadge.color === 'emerald' ? 'from-emerald-400 to-teal-300' : 
+            statusBadge.color === 'rose' ? 'from-rose-400 to-orange-300' : 'from-amber-400 to-yellow-300')} 
+          />
 
-        <div className="mt-8 h-64 w-full">
-            <HistoryChart
-                measurements={data.measurements}
-                minRef={data.minRef}
-                maxRef={data.maxRef}
-                unit={data.unit}
-                displayMin={data.displayMin}
-                displayMax={data.displayMax}
-            />
-        </div>
-      </div>
-
-      {/* Action / Todos Section (Only if we have a latest measurement) */}
-      {latestMeasurement && (
-        <div className="mt-6 grid gap-6 md:grid-cols-2">
-           <div className="bg-white ring-1 ring-slate-900/5 shadow-sm rounded-3xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                 <h3 className="font-display font-bold text-lg text-slate-900">Att göra</h3>
-                 <span className="text-xs font-semibold text-slate-500 bg-slate-50 px-2 py-1 rounded-full">Kopplat till senaste</span>
+          <div className="relative z-10 flex flex-col sm:flex-row justify-between gap-8">
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className={cx("inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ring-1 ring-inset", statusBadge.bg, statusBadge.text, statusBadge.ring)}>
+                  <span className={cx("w-2 h-2 rounded-full", statusBadge.dot)} />
+                  {statusBadge.label}
+                </span>
+                <span className="text-xs text-slate-400 font-medium">Ref: {data.minRef}-{data.maxRef}</span>
               </div>
               
-              <div className="space-y-3">
-                 {todos.map(todo => (
-                    <div key={todo.id} className="group flex items-start gap-3 p-3 rounded-2xl bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                       <input 
-                          type="checkbox" 
-                          checked={todo.done}
-                          onChange={(e) => onToggleTodo(todo.id, e.target.checked)}
-                          className="mt-1 w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                       />
-                       
-                       <div className="flex-1 min-w-0">
-                          {editingTodoId === todo.id ? (
-                             <div className="flex flex-col gap-2">
-                                <input
-                                  value={editingTodoText}
-                                  onChange={(e) => setEditingTodoText(e.target.value)}
-                                  className="w-full text-sm bg-white border border-slate-200 rounded-lg px-2 py-1"
-                                  autoFocus
-                                />
-                                <div className="flex gap-2">
-                                   <button onClick={handleUpdateTodoSubmit} className="text-xs font-bold text-emerald-700">Spara</button>
-                                   <button onClick={() => setEditingTodoId(null)} className="text-xs font-semibold text-slate-500">Avbryt</button>
-                                </div>
-                             </div>
-                          ) : (
-                             <div className={cx("text-sm text-slate-700 break-words", todo.done && "line-through text-slate-400")}>
-                                {todo.task}
-                             </div>
-                          )}
-                       </div>
-
-                       {!editingTodoId && (
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                             <button onClick={() => startEditTodo(todo)} className="text-slate-400 hover:text-slate-700">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                             </button>
-                             <button onClick={() => onDeleteTodo(todo.id)} className="text-slate-400 hover:text-rose-600">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                             </button>
-                          </div>
-                       )}
-                    </div>
-                 ))}
-
-                 <form onSubmit={handleAddTodoSubmit} className="relative">
-                    <input
-                       value={newTodo}
-                       onChange={(e) => setNewTodo(e.target.value)}
-                       placeholder="Lägg till åtgärd..."
-                       className="w-full text-sm bg-white ring-1 ring-slate-900/10 rounded-xl pl-4 pr-10 py-3 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                    />
-                    <button 
-                       type="submit"
-                       disabled={!newTodo.trim()}
-                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-slate-900 text-white disabled:opacity-50 disabled:bg-slate-200"
-                    >
-                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                    </button>
-                 </form>
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-5xl font-display font-bold text-slate-900 tracking-tight">
+                  {latest ? formatNumber(latest.value) : '—'}
+                </h1>
+                <span className="text-2xl text-slate-400 font-medium">{data.unit}</span>
               </div>
-           </div>
+              
+              <div className="mt-3 text-sm font-medium text-slate-500 flex items-center gap-3">
+                <span className="capitalize">{latest ? formatDate(latest.date) : 'Inga mätningar'}</span>
+                {trend && (
+                  <span className={cx("flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold", 
+                    trend.up ? "bg-slate-100 text-slate-700" : "bg-slate-100 text-slate-700"
+                  )}>
+                    <Icon name={trend.up ? 'trendUp' : 'trendDown'} className={cx("w-3 h-3", trend.up ? "text-emerald-500" : "text-rose-500")} />
+                    {formatNumber(Math.abs(trend.pct))}%
+                  </span>
+                )}
+              </div>
+            </div>
 
-           {/* Latest Note Card */}
-           <div className="bg-white ring-1 ring-slate-900/5 shadow-sm rounded-3xl p-5">
-              <h3 className="font-display font-bold text-lg text-slate-900 mb-4">Senaste anteckning</h3>
-              {editingMeasurementNoteId === latestMeasurement.id ? (
-                 <div className="flex flex-col gap-3 h-full">
-                    <textarea 
-                       value={editingMeasurementNoteText}
-                       onChange={(e) => setEditingMeasurementNoteText(e.target.value)}
-                       className="w-full flex-1 bg-slate-50 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                       rows={4}
+            {/* Compact Visualizer */}
+            {latest && (
+               <div className="w-full sm:w-48 self-end">
+                  <ReferenceVisualizer 
+                     value={latest.value}
+                     minRef={data.minRef} maxRef={data.maxRef}
+                     displayMin={data.displayMin} displayMax={data.displayMax}
+                     status={data.status}
+                  />
+               </div>
+            )}
+          </div>
+        </section>
+
+        {/* 3. CHART SECTION WITH CONTROLS */}
+        {sortedMeasurements.length > 0 && (
+           <section className="bg-white rounded-3xl p-6 shadow-sm ring-1 ring-slate-900/5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                 <h3 className="text-base font-bold text-slate-900">Utveckling</h3>
+                 <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
+                    {(['1m', '3m', '6m', '1y', 'all'] as ChartRange[]).map(r => (
+                       <button
+                          key={r}
+                          onClick={() => setChartRange(r)}
+                          className={cx(
+                             "px-3 py-1.5 text-xs font-bold rounded-lg transition-all capitalize",
+                             chartRange === r ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                          )}
+                       >
+                          {r}
+                       </button>
+                    ))}
+                 </div>
+              </div>
+              <div className="h-64 w-full">
+                <HistoryChart 
+                   measurements={chartData} 
+                   minRef={data.minRef} maxRef={data.maxRef} unit={data.unit}
+                   displayMin={data.displayMin} displayMax={data.displayMax}
+                />
+              </div>
+           </section>
+        )}
+
+        {/* 4. ACTIONS & TODOS (Compact) */}
+        <section className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-slate-900/5">
+           <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                 <Icon name="check" className="w-4 h-4 text-emerald-500"/> Att göra
+              </h3>
+              <span className="text-xs font-semibold bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{todos.filter(t=>!t.done).length} kvar</span>
+           </div>
+           
+           <div className="space-y-1">
+              {todos.slice(0, 5).map(todo => (
+                 <div key={todo.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl group transition-colors">
+                    <input 
+                      type="checkbox" 
+                      checked={todo.done} 
+                      onChange={(e) => run('toggle', () => onToggleTodo(todo.id, e.target.checked))}
+                      className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900 cursor-pointer" 
                     />
-                    <div className="flex gap-2 justify-end">
-                       <button onClick={() => setEditingMeasurementNoteId(null)} className="px-3 py-1.5 text-xs font-semibold rounded-lg hover:bg-slate-100">Avbryt</button>
-                       <button onClick={handleSaveMeasurementNote} className="px-3 py-1.5 text-xs font-bold bg-slate-900 text-white rounded-lg">Spara</button>
-                    </div>
+                    <span className={cx("text-sm flex-1 truncate", todo.done ? "text-slate-400 line-through" : "text-slate-700")}>{todo.task}</span>
+                    <button onClick={() => setConfirmDelete({type:'todo',id:todo.id,desc:todo.task})} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 p-1"><Icon name="trash" className="w-4 h-4"/></button>
                  </div>
-              ) : (
-                 <div className="group relative h-full min-h-[100px]">
-                    <div className="text-sm text-slate-600 whitespace-pre-wrap">
-                       {latestMeasurement.note || <span className="text-slate-400 italic">Ingen anteckning för denna mätning.</span>}
-                    </div>
-                    <button 
-                       onClick={() => startEditMeasurementNote(latestMeasurement)}
-                       className="absolute top-0 right-0 p-2 text-slate-400 hover:text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                    </button>
+              ))}
+              
+              {/* Quick Add Todo */}
+              <input 
+                 placeholder="+ Lägg till uppgift (Enter)..." 
+                 className="w-full text-sm bg-transparent px-2 py-2 border-b border-transparent focus:border-slate-900 outline-none placeholder:text-slate-400"
+                 onKeyDown={async (e) => {
+                    if(e.key === 'Enter' && latest) {
+                       const val = e.currentTarget.value;
+                       if(val.trim()) {
+                          await onAddTodo(latest.id, val);
+                          e.currentTarget.value = '';
+                       }
+                    }
+                 }}
+              />
+           </div>
+        </section>
+
+        {/* 5. UNIFIED TIMELINE (Händelselogg) */}
+        <section>
+          <div className="flex items-center justify-between mb-6 px-2">
+            <h3 className="text-lg font-bold text-slate-900">Händelselogg</h3>
+          </div>
+
+          <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-10">
+             
+             {/* Inline Note Creator */}
+             {isAddingNote && (
+                <div className="relative pl-8 animate-in fade-in slide-in-from-top-2">
+                   <div className="absolute -left-[9px] top-4 w-4 h-4 rounded-full bg-slate-900 ring-4 ring-slate-50" />
+                   <div className="bg-white p-4 rounded-2xl shadow-lg ring-1 ring-slate-900/10">
+                      <textarea 
+                         autoFocus
+                         className="w-full text-sm bg-slate-50 p-3 rounded-xl outline-none focus:ring-2 focus:ring-slate-900 mb-3"
+                         rows={3}
+                         placeholder="Vad har hänt? (Sömn, stress, kost...)"
+                         value={newNoteText}
+                         onChange={e => setNewNoteText(e.target.value)}
+                      />
+                      <div className="flex justify-end gap-2">
+                         <button onClick={() => setIsAddingNote(false)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Avbryt</button>
+                         <button onClick={handleSaveNote} className="px-4 py-2 text-xs font-bold bg-slate-900 text-white rounded-lg">Spara</button>
+                      </div>
+                   </div>
+                </div>
+             )}
+
+             {timeline.length === 0 && !isAddingNote && (
+                <div className="pl-8 text-slate-400 text-sm italic py-4">Inget loggat än.</div>
+             )}
+
+             {timeline.map((item) => {
+                const isMeas = item.type === 'measurement';
+                const dataItem = item.data;
+                
+                return (
+                   <div key={`${item.type}-${item.id}`} className="relative pl-8 group">
+                      {/* Timeline Dot */}
+                      <div className={cx(
+                         "absolute -left-[9px] top-1.5 w-4 h-4 rounded-full border-2 border-white ring-1 shadow-sm z-10",
+                         isMeas ? "bg-slate-900 ring-slate-200" : "bg-amber-100 ring-amber-200"
+                      )} />
+                      
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                         <div className="flex-1">
+                            <div className="text-xs font-bold text-slate-400 mb-1.5 flex items-center gap-2">
+                               {formatDateTime(item.date)}
+                               {!isMeas && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-bold uppercase">Anteckning</span>}
+                            </div>
+                            
+                            {isMeas ? (
+                               <div className="bg-white p-4 rounded-2xl shadow-sm ring-1 ring-slate-900/5 hover:ring-slate-900/20 transition-all">
+                                  <div className="flex justify-between items-start">
+                                     <div>
+                                        <div className="text-lg font-bold text-slate-900">
+                                           {formatNumber(dataItem.value)} 
+                                           <span className="text-sm font-normal text-slate-500 ml-1">{data.unit}</span>
+                                        </div>
+                                        {dataItem.note && (
+                                           <div className="mt-2 text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-lg italic border border-slate-100">
+                                              "{dataItem.note}"
+                                           </div>
+                                        )}
+                                     </div>
+                                     <div className="flex flex-col gap-2">
+                                        {(() => {
+                                           const b = getRangeBadge(dataItem.value, data.minRef, data.maxRef);
+                                           return <span className={cx("px-2 py-0.5 rounded text-[10px] font-bold uppercase text-center", b.bg, b.text)}>{b.label}</span>;
+                                        })()}
+                                     </div>
+                                  </div>
+                               </div>
+                            ) : (
+                               <div className="bg-amber-50/40 p-4 rounded-2xl border border-amber-100/60 hover:bg-amber-50/80 transition-all">
+                                  <p className="text-slate-800 text-sm whitespace-pre-wrap leading-relaxed">{dataItem.note}</p>
+                               </div>
+                            )}
+                         </div>
+
+                         {/* Quick Actions (Hover) */}
+                         <div className="flex sm:flex-col gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                            {isMeas ? (
+                               <button 
+                                 onClick={() => { setEditingMeasId(dataItem.id); setEditMeasValue(String(dataItem.value)); setEditMeasDate(dataItem.date.split('T')[0]); }}
+                                 className="p-2 text-slate-300 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                               >
+                                  <Icon name="edit" className="w-4 h-4" />
+                               </button>
+                            ) : (
+                               <button 
+                                 onClick={() => setConfirmDelete({type:'note', id:dataItem.id, desc:'anteckning'})}
+                                 className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg"
+                               >
+                                  <Icon name="trash" className="w-4 h-4" />
+                               </button>
+                            )}
+                            {isMeas && onDeleteMeasurement && (
+                               <button 
+                                 onClick={() => setConfirmDelete({type:'meas', id:dataItem.id, desc:`${dataItem.value} ${data.unit}`})}
+                                 className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg"
+                               >
+                                  <Icon name="trash" className="w-4 h-4" />
+                               </button>
+                            )}
+                         </div>
+                      </div>
+                   </div>
+                );
+             })}
+          </div>
+        </section>
+      </div>
+
+      {/* 6. FAB (FLOATING ACTION BUTTONS) - Bättre UX på mobil */}
+      <div className="fixed bottom-6 right-6 flex flex-col gap-4 z-50">
+         <button 
+            onClick={() => setIsAddingNote(prev => !prev)}
+            className="w-12 h-12 rounded-full bg-white text-slate-600 shadow-lg ring-1 ring-slate-900/5 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            title="Ny anteckning"
+         >
+            <Icon name="note" className="w-5 h-5" />
+         </button>
+         
+         <button 
+            onClick={() => onAddMeasurement(data.id)}
+            className="w-14 h-14 rounded-full bg-slate-900 text-white shadow-xl shadow-slate-900/20 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            title="Ny mätning"
+         >
+            <Icon name="plus" className="w-6 h-6" />
+         </button>
+      </div>
+
+      {/* --- MODALS (Enklare varianter) --- */}
+      {editingMeasId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
+           <div className="bg-white w-full max-w-sm p-6 rounded-3xl shadow-2xl animate-in zoom-in-95">
+              <h3 className="font-bold text-lg mb-4">Redigera mätning</h3>
+              <div className="space-y-4">
+                 <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Värde ({data.unit})</label>
+                    <input autoFocus value={editMeasValue} onChange={e=>setEditMeasValue(e.target.value)} className="w-full text-2xl font-bold p-3 bg-slate-50 rounded-xl outline-none focus:ring-2 focus:ring-slate-900" />
                  </div>
-              )}
+                 <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Datum</label>
+                    <input type="date" value={editMeasDate} onChange={e=>setEditMeasDate(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl outline-none focus:ring-2 focus:ring-slate-900 font-medium" />
+                 </div>
+                 <div className="flex gap-2 pt-2">
+                    <button onClick={() => setEditingMeasId(null)} className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 rounded-xl hover:bg-slate-200">Avbryt</button>
+                    <button onClick={handleUpdateMeasurement} className="flex-1 py-3 font-bold text-white bg-slate-900 rounded-xl hover:bg-slate-800">Spara</button>
+                 </div>
+              </div>
            </div>
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="mt-8">
-        <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-2xl w-fit">
-           <button
-             onClick={() => setActiveTab('log')}
-             className={cx(
-                "px-4 py-2 rounded-xl text-sm font-bold transition-all",
-                activeTab === 'log' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-             )}
-           >
-              Loggbok
-           </button>
-           <button
-             onClick={() => setActiveTab('history')}
-             className={cx(
-                "px-4 py-2 rounded-xl text-sm font-bold transition-all",
-                activeTab === 'history' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-             )}
-           >
-              Historik
-           </button>
-        </div>
-      </div>
-
-      <div className="mt-4">
-         {activeTab === 'log' && (
-            <div className="space-y-4">
-               {/* Add Note */}
-               {!isAddingNote ? (
-                  <button 
-                     onClick={() => setIsAddingNote(true)}
-                     className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-semibold hover:border-slate-300 hover:text-slate-600 transition-all text-sm"
-                  >
-                     + Lägg till generell anteckning
-                  </button>
-               ) : (
-                  <div className="bg-white p-4 rounded-2xl ring-1 ring-slate-900/5 shadow-sm animate-in fade-in slide-in-from-top-2">
-                     <textarea
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        placeholder="Skriv din anteckning..."
-                        rows={3}
-                        className="w-full text-sm bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-slate-900 mb-3"
-                        autoFocus
-                     />
-                     <div className="flex justify-end gap-2">
-                        <button onClick={() => setIsAddingNote(false)} className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 rounded-xl">Avbryt</button>
-                        <button onClick={handleSaveNote} className="px-4 py-2 text-sm font-bold bg-slate-900 text-white rounded-xl">Spara</button>
-                     </div>
-                  </div>
-               )}
-
-               {/* Notes List */}
-               {data.notes.map(note => {
-                  const isEditing = editingMarkerNoteId === note.id;
-                  return (
-                     <div key={note.id} className="bg-white p-5 rounded-3xl ring-1 ring-slate-900/5 shadow-sm">
-                        <div className="flex justify-between items-start mb-2">
-                           <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">
-                              {formatDateTime(note.date)}
-                           </div>
-                           {!isEditing && (
-                              <div className="flex gap-2">
-                                 <button onClick={() => startEditMarkerNote(note.id, note.note)} className="text-xs font-semibold text-slate-400 hover:text-slate-700">Ändra</button>
-                                 <button onClick={() => onDeleteNote(note.id)} className="text-xs font-semibold text-rose-300 hover:text-rose-600">Ta bort</button>
-                              </div>
-                           )}
-                        </div>
-                        
-                        {isEditing ? (
-                           <div className="space-y-3">
-                              <textarea
-                                 value={editingMarkerNoteText}
-                                 onChange={(e) => setEditingMarkerNoteText(e.target.value)}
-                                 className="w-full bg-slate-50 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-                                 rows={3}
-                              />
-                              <div className="flex gap-2 justify-end">
-                                 <button onClick={() => setEditingMarkerNoteId(null)} className="text-sm font-semibold text-slate-500 hover:text-slate-700">Avbryt</button>
-                                 <button onClick={handleSaveMarkerNoteEdit} className="text-sm font-bold text-slate-900">Spara</button>
-                              </div>
-                           </div>
-                        ) : (
-                           <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
-                              {note.note}
-                           </div>
-                        )}
-                     </div>
-                  );
-               })}
-               
-               {data.notes.length === 0 && !isAddingNote && (
-                  <div className="text-center py-10 text-slate-400 text-sm">Inga anteckningar än.</div>
-               )}
+      {confirmDelete && (
+         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
+            <div className="bg-white w-full max-w-sm p-6 rounded-3xl shadow-2xl">
+               <h3 className="font-bold text-lg">Ta bort {confirmDelete.desc}?</h3>
+               <p className="text-slate-500 text-sm mt-2">Detta går inte att ångra.</p>
+               <div className="flex gap-2 mt-6">
+                  <button onClick={() => setConfirmDelete(null)} className="flex-1 py-2 font-bold text-slate-500 hover:bg-slate-50 rounded-xl">Avbryt</button>
+                  <button onClick={handleDelete} className="flex-1 py-2 font-bold text-white bg-rose-600 rounded-xl hover:bg-rose-700">Ta bort</button>
+               </div>
             </div>
-         )}
+         </div>
+      )}
 
-         {activeTab === 'history' && (
-            <div className="space-y-3">
-               {data.measurements.map(m => {
-                 const isEditingHistory = editingHistoryId === m.id;
-                 return (
-                  <div key={m.id} className="bg-white p-4 rounded-3xl ring-1 ring-slate-900/5 shadow-sm flex items-start justify-between">
-                     <div className="flex-1 min-w-0 pr-4">
-                        {isEditingHistory ? (
-                          <div className="flex flex-col gap-2">
-                             <div className="flex items-center gap-2">
-                                <input
-                                   type="number"
-                                   step="0.01"
-                                   value={editHistoryValue}
-                                   onChange={(e) => setEditHistoryValue(e.target.value)}
-                                   className="w-24 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold focus:ring-2 focus:ring-slate-900 outline-none"
-                                />
-                                <span className="text-sm font-medium text-slate-400">{data.unit}</span>
-                             </div>
-                             <input
-                                type="date"
-                                value={editHistoryDate}
-                                onChange={(e) => setEditHistoryDate(e.target.value)}
-                                className="w-full sm:w-auto bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-slate-900 outline-none"
-                             />
-                             <div className="flex gap-2 mt-1">
-                                <button onClick={saveEditHistory} className="text-xs font-bold bg-slate-900 text-white px-3 py-1.5 rounded-lg">Spara</button>
-                                <button onClick={cancelEditHistory} className="text-xs font-semibold text-slate-500 hover:bg-slate-50 px-3 py-1.5 rounded-lg">Avbryt</button>
-                             </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="text-lg font-bold text-slate-900">
-                               {formatNumber(m.value)} <span className="text-sm text-slate-400 font-medium">{data.unit}</span>
-                            </div>
-                            <div className="text-xs font-medium text-slate-500 mt-1">
-                               {formatDate(m.date)}
-                            </div>
-                            {m.note && (
-                               <div className="mt-3 text-sm text-slate-600 bg-slate-50 p-3 rounded-xl">
-                                  {m.note}
-                               </div>
-                            )}
-                          </>
-                        )}
-                     </div>
-                     
-                     <div className="flex flex-col gap-1 items-end">
-                       {/* Note Edit Button */}
-                       <button
-                          onClick={() => {
-                             if (editingMeasurementNoteId === m.id) {
-                                setEditingMeasurementNoteId(null);
-                             } else {
-                                startEditMeasurementNote(m);
-                             }
-                          }}
-                          title="Redigera anteckning"
-                          className="p-2 text-slate-300 hover:text-slate-600 transition-colors rounded-lg hover:bg-slate-50"
-                       >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                       </button>
-
-                       {!isEditingHistory && (
-                         <>
-                           {/* Edit Value/Date Button */}
-                           <button
-                              onClick={() => startEditHistory(m)}
-                              title="Redigera värde/datum"
-                              className="p-2 text-slate-300 hover:text-emerald-600 transition-colors rounded-lg hover:bg-emerald-50"
-                           >
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                              </svg>
-                           </button>
-
-                           {/* Delete Button */}
-                           <button
-                              type="button"
-                              onClick={(e) => handleDeleteHistoryItem(m.id, e)}
-                              title="Ta bort mätning"
-                              className="p-2 text-slate-300 hover:text-rose-600 transition-colors rounded-lg hover:bg-rose-50"
-                           >
-                              <svg className="w-5 h-5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                           </button>
-                         </>
-                       )}
-                     </div>
-                  </div>
-                 );
-               })}
-               
-               {editingMeasurementNoteId && !latestMeasurement && (
-                  <div className="fixed inset-0 bg-black/20 flex items-center justify-center p-4 z-50">
-                     <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl">
-                        <h3 className="font-bold text-lg mb-4">Redigera anteckning</h3>
-                        <textarea
-                           value={editingMeasurementNoteText}
-                           onChange={(e) => setEditingMeasurementNoteText(e.target.value)}
-                           className="w-full bg-slate-50 rounded-xl p-3 mb-4 h-32"
-                        />
-                        <div className="flex justify-end gap-3">
-                           <button onClick={() => setEditingMeasurementNoteId(null)} className="px-4 py-2 rounded-xl text-sm font-semibold">Avbryt</button>
-                           <button onClick={handleSaveMeasurementNote} className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold">Spara</button>
-                        </div>
-                     </div>
-                  </div>
-               )}
-            </div>
-         )}
+      {/* TOASTS */}
+      <div className="fixed top-6 right-6 z-[70] flex flex-col gap-2 pointer-events-none">
+        {toasts.map(t => (
+           <div key={t.id} className={cx("pointer-events-auto bg-white px-4 py-3 rounded-2xl shadow-xl ring-1 ring-black/5 border-l-4 min-w-[300px] animate-in slide-in-from-right-10", 
+              t.type==='success'?'border-emerald-500': t.type==='error'?'border-rose-500':'border-slate-400')}>
+              <p className="text-sm font-bold text-slate-900">{t.message}</p>
+           </div>
+        ))}
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { OptimizationEvent } from '../types';
 import { formatDate, formatNumber } from '../utils';
@@ -30,7 +31,7 @@ const OptimizedListModal: React.FC<Props> = ({ isOpen, onClose, events }) => {
             <div>
               <h3 className="text-xl font-display font-bold text-slate-900">Optimerade värden</h3>
               <p className="text-sm text-slate-600 mt-1">
-                Du har normaliserat <span className="font-semibold">{sortedEvents.length}</span> gånger.
+                Du har optimerat blodvärden till det bättre <span className="font-semibold">{sortedEvents.length}</span> gånger.
               </p>
             </div>
 

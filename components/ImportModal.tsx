@@ -113,7 +113,11 @@ const ImportModal: React.FC<Props> = ({ isOpen, onClose, availableMarkers, onSav
 
     } catch (err: any) {
       console.error(err);
-      setError("Något gick fel vid analysen. Kontrollera din API-nyckel eller försök igen.");
+      if (err.status === 429 || err.code === 429 || err.message?.includes('429') || err.toString().includes('429')) {
+        setError("AI-tjänsten är tillfälligt överbelastad (429). Försök igen om en stund eller fyll i värdena manuellt.");
+      } else {
+        setError("Något gick fel vid analysen. Kontrollera din API-nyckel eller försök igen.");
+      }
     } finally {
       setAnalyzing(false);
     }

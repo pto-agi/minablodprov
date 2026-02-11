@@ -27,6 +27,10 @@ export interface BloodMarker {
     targetMin: number;
     targetMax: number;
   };
+  recommendationLow?: string;
+  recommendationHigh?: string;
+  riskLow?: string;
+  riskHigh?: string;
 }
 
 export type HealthStatus = 'low' | 'normal' | 'high';
@@ -71,4 +75,21 @@ export interface OptimizationEvent {
   badStatus: HealthStatus;
   goodDate: string;
   goodValue: number;
+}
+
+export interface ActionableTodo {
+  systemId: string;
+  systemName: string;
+  systemEmoji: string;
+  actionTitle: string; 
+  actionDescription: string;
+  triggeredBy: string[]; 
+}
+
+export interface JournalEntry {
+  id: string;
+  content: string;
+  entryDate: string;
+  tags: string[];
+  createdAt: string;
 }

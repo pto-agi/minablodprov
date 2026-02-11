@@ -202,25 +202,25 @@ export const FOCUS_AREAS: Array<{
 }> = [
   {
     id: 'cardiovascular',
-    title: 'Hjärta & kärl',
+    title: 'Hjärt- & Kärlhälsa',
     emoji: '🫀',
     description: 'Lipider, ApoB, blodtrycksrelaterade och riskmarkörer.',
   },
   {
     id: 'metabolic',
-    title: 'Metabolt',
+    title: 'Metabol Hälsa',
     emoji: '⚡️',
     description: 'Glukos, insulin, HbA1c och energimetabolism.',
   },
   {
     id: 'liver',
-    title: 'Lever',
+    title: 'Leverfunktion',
     emoji: '🧪',
     description: 'ALT/AST/ALP/GGT, bilirubin och leverrelaterade markörer.',
   },
   {
     id: 'kidney',
-    title: 'Njurar',
+    title: 'Njurfunktion',
     emoji: '🫘',
     description: 'Kreatinin, eGFR, cystatin C, urea och urat.',
   },
@@ -238,25 +238,25 @@ export const FOCUS_AREAS: Array<{
   },
   {
     id: 'blood',
-    title: 'Blod',
+    title: 'Blodstatus',
     emoji: '🩸',
     description: 'Hb, RBC/WBC, trombocyter och blodstatus.',
   },
   {
     id: 'hormones',
-    title: 'Hormoner',
+    title: 'Hormonell Balans',
     emoji: '🧬',
     description: 'Testosteron, östradiol, cortisol, SHBG, LH/FSH m.fl.',
   },
   {
     id: 'micronutrients',
-    title: 'Mikronäring',
+    title: 'Mikronutrienter',
     emoji: '🥬',
     description: 'Ferritin/järn, B12, folat, vitamin D, zink, selen m.m.',
   },
   {
     id: 'electrolytes',
-    title: 'Elektrolyter',
+    title: 'Elektrolytbalans',
     emoji: '🧂',
     description: 'Natrium, kalium, klorid, kalcium, fosfat, CO2/bikarbonat.',
   },
@@ -409,4 +409,68 @@ export const getFocusAreasForMarker = (marker: Pick<BloodMarker, 'name' | 'categ
 
   const uniq = Array.from(new Set(out));
   return uniq.length ? uniq : ['other'];
+};
+
+/**
+ * Returns a high-impact actionable advice for a specific organ system.
+ * ideally this fetches from a DB in the future.
+ */
+export const getActionableAdvice = (system: FocusAreaId): { title: string; desc: string } => {
+  switch (system) {
+    case 'cardiovascular':
+      return { 
+        title: "Optimera blodfetter", 
+        desc: "Öka zon 2-träning och minska mättat fett." 
+      };
+    case 'metabolic':
+      return { 
+        title: "Stabilisera blodsocker", 
+        desc: "Promenera 10 minuter efter varje måltid." 
+      };
+    case 'liver':
+      return { 
+        title: "Minska leverbelastning", 
+        desc: "Undvik alkohol och fruktos i 4 veckor." 
+      };
+    case 'inflammation':
+      return { 
+        title: "Sänk inflammation", 
+        desc: "Öka Omega-3 och prioritera återhämtning." 
+      };
+    case 'hormones':
+      return { 
+        title: "Optimera dygnsrytm", 
+        desc: "Få dagsljus direkt på morgonen och sov 8h." 
+      };
+    case 'kidney':
+      return { 
+        title: "Stöd njurfunktion", 
+        desc: "Säkerställ vätskeintag och kolla blodtryck." 
+      };
+    case 'thyroid':
+      return { 
+        title: "Stöd sköldkörteln", 
+        desc: "Minska stress och ät selenrika livsmedel." 
+      };
+    case 'blood':
+      return { 
+        title: "Öka järnupptag", 
+        desc: "Kombinera järnrik mat med C-vitamin. Undvik kaffe till maten." 
+      };
+    case 'micronutrients':
+      return { 
+        title: "Justera intag", 
+        desc: "Riktad kost eller tillskott för specifika brister." 
+      };
+    case 'electrolytes':
+      return { 
+        title: "Balansera mineraler", 
+        desc: "Öka intag av kalium via grönsaker." 
+      };
+    default:
+      return { 
+        title: "Utred vidare", 
+        desc: "Boka tid för djupare analys." 
+      };
+  }
 };

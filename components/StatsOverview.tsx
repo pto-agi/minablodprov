@@ -1,7 +1,6 @@
 
-import React from 'react';
-import { MarkerHistory } from '../types';
-import { formatNumber, getStatusTextColor } from '../utils';
+import React, { useMemo } from 'react';
+import { MarkerHistory, ActionableTodo } from '../types';
 
 interface Props {
   totalMarkers: number;
@@ -10,27 +9,21 @@ interface Props {
   optimizedCount: number;
   onOptimizedClick: () => void;
   onAttentionClick?: () => void;
+  actionableTodos?: ActionableTodo[];
+  newOptimizedCount?: number;
 }
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 
-const CircularProgress: React.FC<{ percentage: number; size?: number; strokeWidth?: number }> = ({ 
+const CircularProgress: React.FC<{ percentage: number; size?: number; strokeWidth?: number; colorClass: string }> = ({ 
   percentage, 
   size = 120, 
-  strokeWidth = 10 
+  strokeWidth = 10,
+  colorClass
 }) => {
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
   const offset = circumference - (percentage / 100) * circumference;
-  
-  // Determine color based on score
-  const colorClass = percentage === 100 
-    ? 'text-emerald-500' 
-    : percentage >= 80 
-      ? 'text-emerald-500' 
-      : percentage >= 50 
-        ? 'text-amber-500' 
-        : 'text-rose-500';
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
@@ -60,7 +53,7 @@ const CircularProgress: React.FC<{ percentage: number; size?: number; strokeWidt
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-900">
-        <span className="text-3xl font-display font-bold">{percentage}%</span>
+        <span className="text-3xl font-display font-bold tracking-tight">{percentage}%</span>
       </div>
     </div>
   );
@@ -72,125 +65,165 @@ const StatsOverview: React.FC<Props> = ({
   attentionMarkers, 
   optimizedCount,
   onOptimizedClick,
-  onAttentionClick
+  onAttentionClick,
+  newOptimizedCount = 0
 }) => {
-  const healthScore = totalMarkers > 0 ? Math.round((normalCount / totalMarkers) * 100) : 0;
   const hasData = totalMarkers > 0;
+  
+  // Calculate scores
+  const healthScore = totalMarkers > 0 ? Math.round((normalCount / totalMarkers) * 100) : 0;
+  const isAllOptimal = normalCount === totalMarkers;
+
+  // Group attention markers by category
+  const attentionCategories = useMemo(() => {
+    const groups: Record<string, number> = {};
+    attentionMarkers.forEach(m => {
+      const cat = m.category || 'Övrigt';
+      groups[cat] = (groups[cat] || 0) + 1;
+    });
+    // Sort by count desc
+    return Object.entries(groups).sort((a, b) => b[1] - a[1]);
+  }, [attentionMarkers]);
+
+  if (!hasData) return null;
+
+  // Dynamic Colors based on score
+  const scoreColor = isAllOptimal 
+    ? 'text-emerald-500' 
+    : healthScore >= 80 
+      ? 'text-emerald-500' 
+      : healthScore >= 50 
+        ? 'text-amber-500' 
+        : 'text-rose-500';
+
+  const gradientBg = isAllOptimal
+    ? 'radial-gradient(circle at top right, #d1fae5 0%, transparent 60%)' // Emerald-100
+    : healthScore >= 80
+      ? 'radial-gradient(circle at top right, #d1fae5 0%, transparent 60%)'
+      : healthScore >= 50
+        ? 'radial-gradient(circle at top right, #fef3c7 0%, transparent 60%)' // Amber-100
+        : 'radial-gradient(circle at top right, #ffe4e6 0%, transparent 60%)'; // Rose-100
 
   return (
-    <div className="grid md:grid-cols-2 gap-4 mb-8">
-      {/* CARD 1: Health Score */}
-      <div className="relative overflow-hidden rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-slate-900/5 flex flex-col justify-between min-h-[220px]">
-         {/* Background Decoration */}
-         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-gradient-to-br from-emerald-100/50 to-cyan-100/30 rounded-full blur-2xl pointer-events-none" />
-
-         <div>
-            <div className="flex items-center justify-between mb-2">
-               <h3 className="font-display font-bold text-lg text-slate-900">Hälsopoäng</h3>
-               {hasData && (
-                 <span className={cx(
-                   "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ring-1",
-                   healthScore === 100 
-                    ? "bg-emerald-50 text-emerald-800 ring-emerald-900/10" 
-                    : healthScore >= 80 
-                      ? "bg-emerald-50 text-emerald-800 ring-emerald-900/10"
-                      : "bg-amber-50 text-amber-800 ring-amber-900/10"
-                 )}>
-                    {healthScore === 100 ? 'Optimal' : healthScore >= 80 ? 'Bra' : 'Kan förbättras'}
-                 </span>
-               )}
+    <div className="w-full mb-8 animate-in fade-in slide-in-from-bottom-3 duration-500">
+      <div className="relative overflow-hidden rounded-[2.5rem] bg-white ring-1 ring-slate-900/5 shadow-sm p-6 sm:p-8">
+        
+        {/* Background Gradients */}
+        <div className="absolute top-0 right-0 -mt-20 -mr-20 w-96 h-96 rounded-full blur-3xl opacity-60 pointer-events-none transition-all duration-700"
+             style={{ background: gradientBg }} />
+        
+        <div className="relative z-10 flex flex-col md:flex-row gap-8 items-center justify-between">
+          
+          {/* LEFT: Score & Main Message */}
+          <div className="flex items-center gap-6 flex-1 min-w-0">
+            <div className="shrink-0">
+               <CircularProgress percentage={healthScore} size={90} strokeWidth={8} colorClass={scoreColor} />
             </div>
-            <p className="text-sm text-slate-500 max-w-[80%]">
-               Andel biomarkörer som ligger inom referensintervallet.
-            </p>
-         </div>
-
-         <div className="flex items-center justify-between mt-6">
-            <div className="flex flex-col gap-1">
-               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Spårade värden</div>
-               <div className="text-2xl font-bold text-slate-900">{totalMarkers} <span className="text-sm font-medium text-slate-500">st</span></div>
+            
+            <div>
+               <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+                    Din optimeringsgrad
+                  </h2>
+                  {isAllOptimal && <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">Perfekt</span>}
+               </div>
                
-               {optimizedCount > 0 && (
+               <p className="text-xl sm:text-2xl font-display font-bold text-slate-900 leading-tight">
+                 {isAllOptimal 
+                   ? "Alla system fungerar optimalt." 
+                   : "Du är på god väg mot 100%."}
+               </p>
+               
+               <p className="text-sm text-slate-500 mt-1 font-medium">
+                 {isAllOptimal 
+                   ? `Baserat på ${totalMarkers} analyserade biomarkörer.`
+                   : `${normalCount} av ${totalMarkers} värden är inom referensintervall.`
+                 }
+               </p>
+            </div>
+          </div>
+
+          {/* RIGHT: Actionable Insights (Card) or Celebration */}
+          <div className="w-full md:w-auto md:max-w-md flex flex-col items-start md:items-end gap-4">
+            
+            {!isAllOptimal && (
+              <button
+                onClick={onAttentionClick}
+                className="group relative w-full md:w-auto min-w-[220px] text-left transition-all hover:-translate-y-1 outline-none"
+              >
+                {/* Glow effect behind */}
+                <div className="absolute -inset-0.5 bg-gradient-to-br from-amber-200 to-rose-200 rounded-3xl opacity-0 group-hover:opacity-100 blur transition-opacity duration-500" />
+                
+                <div className="relative bg-white/80 backdrop-blur-xl rounded-[1.3rem] p-5 ring-1 ring-slate-900/5 shadow-sm group-hover:shadow-md transition-all group-active:scale-[0.98]">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                      </span>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                        Åtgärd krävs
+                      </span>
+                    </div>
+                    <div className="w-6 h-6 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-amber-100 transition-colors">
+                      <svg className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-700 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 flex items-baseline gap-1.5">
+                    <span className="text-3xl font-display font-bold text-slate-900">
+                      {attentionMarkers.length}
+                    </span>
+                    <span className="text-sm font-medium text-slate-600">avvikelser</span>
+                  </div>
+                  
+                  {/* Mini categories summary */}
+                  <div className="mt-3 flex flex-wrap gap-1.5 opacity-70 group-hover:opacity-100 transition-opacity">
+                     {attentionCategories.slice(0, 3).map(([cat]) => (
+                       <span key={cat} className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-bold border border-slate-200/50">
+                         {cat}
+                       </span>
+                     ))}
+                     {attentionCategories.length > 3 && (
+                       <span className="text-[10px] px-1.5 py-0.5 bg-slate-50 text-slate-400 rounded-md font-bold">+{attentionCategories.length - 3}</span>
+                     )}
+                  </div>
+                </div>
+              </button>
+            )}
+
+            {/* Milestones Button - Always visible if count > 0 */}
+            {optimizedCount > 0 && (
                  <button 
                    onClick={onOptimizedClick}
-                   className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-emerald-600 hover:text-emerald-800 transition-colors bg-emerald-50/50 hover:bg-emerald-50 px-2 py-1.5 rounded-lg w-fit -ml-2"
+                   className={cx(
+                     "group flex items-center gap-2 px-4 py-2.5 rounded-2xl transition-all border self-start md:self-end",
+                     newOptimizedCount > 0 
+                       ? "bg-emerald-50 border-emerald-200 text-emerald-800 shadow-emerald-100 shadow-md" 
+                       : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                   )}
                  >
-                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                   {optimizedCount} optimerade sedan start
+                   <div className={cx(
+                     "flex items-center justify-center w-6 h-6 rounded-full text-xs shadow-sm",
+                     newOptimizedCount > 0 ? "bg-emerald-500 text-white animate-pulse" : "bg-slate-100 text-amber-500"
+                   )}>
+                     {newOptimizedCount > 0 ? '+' : '★'}
+                   </div>
+                   <div className="flex flex-col leading-none text-left">
+                     <span className="text-[10px] font-bold uppercase tracking-wide opacity-70">
+                       {newOptimizedCount > 0 ? 'Nya framsteg!' : 'Milstolpar'}
+                     </span>
+                     <span className="text-sm font-bold">
+                       {newOptimizedCount > 0 ? `${newOptimizedCount} optimerade` : `${optimizedCount} st optimerade`}
+                     </span>
+                   </div>
                  </button>
-               )}
-            </div>
-
-            <div className="mr-2">
-               <CircularProgress percentage={hasData ? healthScore : 0} />
-            </div>
-         </div>
-      </div>
-
-      {/* CARD 2: Action Center / Focus Areas */}
-      <div 
-        onClick={onAttentionClick}
-        className={cx(
-          "relative overflow-hidden rounded-[2rem] bg-slate-900 text-white p-6 shadow-lg shadow-slate-900/10 flex flex-col min-h-[220px] transition-transform active:scale-[0.99]",
-          onAttentionClick ? "cursor-pointer hover:bg-slate-800" : ""
-        )}
-      >
-         {/* Background Decoration */}
-         <div className="absolute bottom-0 left-0 -mb-10 -ml-10 w-40 h-40 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-         
-         <div className="relative z-10 flex-1 flex flex-col">
-            <div className="flex items-center justify-between mb-4">
-               <h3 className="font-display font-bold text-lg">
-                  {attentionMarkers.length > 0 ? 'Kräver fokus' : 'All Systems Go'}
-               </h3>
-               <div className={cx(
-                 "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ring-1 ring-white/20",
-                 attentionMarkers.length > 0 ? "bg-amber-500 text-white" : "bg-emerald-500 text-white"
-               )}>
-                 {attentionMarkers.length > 0 ? '!' : '✓'}
-               </div>
-            </div>
-
-            {attentionMarkers.length > 0 ? (
-              <>
-                <p className="text-slate-300 text-sm mb-4">
-                  {attentionMarkers.length} markörer ligger utanför referens. Prioritera dessa för att öka din poäng.
-                </p>
-                <div className="mt-auto space-y-2">
-                  {attentionMarkers.slice(0, 3).map(marker => (
-                    <div key={marker.id} className="flex items-center justify-between bg-white/10 rounded-xl px-3 py-2.5 backdrop-blur-md border border-white/5">
-                       <div className="flex items-center gap-2 min-w-0">
-                          <span className={cx("w-1.5 h-1.5 rounded-full shrink-0", marker.status === 'high' ? 'bg-amber-400' : 'bg-rose-400')} />
-                          <span className="font-semibold text-sm truncate">{marker.name}</span>
-                       </div>
-                       <div className="text-xs font-mono font-medium text-slate-300">
-                          {formatNumber(marker.latestMeasurement?.value)} {marker.unit}
-                       </div>
-                    </div>
-                  ))}
-                  {attentionMarkers.length > 3 && (
-                    <div className="text-xs text-center text-slate-400 pt-1">
-                      + {attentionMarkers.length - 3} till...
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center">
-                 <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mb-4 ring-1 ring-emerald-500/50">
-                    <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                 </div>
-                 <p className="text-slate-200 font-medium">
-                   Alla dina spårade värden ligger inom referens. Grymt jobbat!
-                 </p>
-                 <p className="text-slate-400 text-xs mt-2">
-                   Fortsätt övervaka för att behålla din streak.
-                 </p>
-              </div>
             )}
-         </div>
+
+          </div>
+        </div>
       </div>
     </div>
   );
