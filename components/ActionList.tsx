@@ -9,6 +9,7 @@ interface Props {
   onUpdateTags?: (todoId: string, markerIds: string[]) => void;
   onUpdateTask?: (todoId: string, task: string, dueDate: string | null) => Promise<void>;
   onTagClick?: (markerId: string) => void;
+  onPlanClick?: (journalId: string) => void; // New prop for navigating to plans
   onDelete?: (id: string) => void;
   onAdd?: (task: string) => Promise<void>;
   variant?: 'card' | 'minimal';
@@ -60,10 +61,26 @@ const TagModal: React.FC<{
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
-  const filteredMarkers = markers.filter(m => 
-    m.name.toLowerCase().includes(search.toLowerCase()) || 
-    m.shortName.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredMarkers = markers.filter(m => {
+    const q = search.toLowerCase().trim();
+    const isSelected = selected.includes(m.id);
+
+    // If searching, search EVERYTHING
+    if (q) {
+      return m.name.toLowerCase().includes(q) || 
+             m.shortName.toLowerCase().includes(q);
+    }
+
+    // If NOT searching (Default View):
+    // Show if:
+    // 1. It is already selected (so we can uncheck it)
+    // 2. It has an abnormal status (we cast to any because BloodMarker type is static, 
+    //    but runtime object from App.tsx has 'status')
+    const status = (m as any).status;
+    const isAbnormal = status === 'high' || status === 'low';
+
+    return isSelected || isAbnormal;
+  });
 
   return (
     <div className="absolute right-0 top-8 z-50 w-64 bg-white rounded-xl shadow-xl ring-1 ring-slate-900/10 animate-in fade-in zoom-in-95 duration-200" ref={modalRef}>
@@ -75,25 +92,41 @@ const TagModal: React.FC<{
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
+        {!search && (
+           <div className="text-[10px] text-slate-400 mt-2 px-1">
+              Visar avvikelser. Sök för att hitta andra.
+           </div>
+        )}
       </div>
       <div className="max-h-48 overflow-y-auto p-1">
         {filteredMarkers.map(m => {
           const isSelected = selected.includes(m.id);
+          const status = (m as any).status;
+          
           return (
             <button
               key={m.id}
               onClick={() => toggle(m.id)}
               className={cx(
-                "w-full text-left px-3 py-2 text-xs rounded-lg flex justify-between items-center transition-colors",
+                "w-full text-left px-3 py-2 text-xs rounded-lg flex justify-between items-center transition-colors group",
                 isSelected ? "bg-indigo-50 text-indigo-700 font-bold" : "hover:bg-slate-50 text-slate-700"
               )}
             >
-              <span>{m.name}</span>
+              <div className="flex items-center gap-2">
+                 <span>{m.name}</span>
+                 {status === 'high' && <span className="w-1.5 h-1.5 rounded-full bg-rose-500" title="Högt" />}
+                 {status === 'low' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Lågt" />}
+              </div>
               {isSelected && <span className="text-indigo-500">✓</span>}
             </button>
           )
         })}
-        {filteredMarkers.length === 0 && <div className="p-3 text-xs text-slate-400 text-center">Inget hittades</div>}
+        {filteredMarkers.length === 0 && (
+          <div className="p-4 text-center">
+             <div className="text-xs text-slate-500 font-medium">Inga markörer hittades</div>
+             {!search && <div className="text-[10px] text-slate-400 mt-1">Sök för att lägga till markörer inom referensintervallet.</div>}
+          </div>
+        )}
       </div>
       <div className="p-2 border-t border-slate-100 bg-slate-50/50 rounded-b-xl flex justify-end">
         <button 
@@ -121,6 +154,7 @@ const ActionItem: React.FC<{
   onDelete?: (id: string) => void;
   onUpdateTags?: (id: string, tags: string[]) => void;
   onTagClick?: (id: string) => void;
+  onPlanClick?: (id: string) => void;
   onUpdateTask?: any;
   availableMarkers: BloodMarker[];
   planTitles?: Record<string, string>;
@@ -128,7 +162,7 @@ const ActionItem: React.FC<{
 }> = ({ 
   todo, isEditing, onToggle, startEditing, cancelEditing, saveEditing, 
   editTaskText, setEditTaskText, editDueDate, setEditDueDate, 
-  onDelete, onUpdateTags, onTagClick, onUpdateTask, availableMarkers, planTitles, isCompleted
+  onDelete, onUpdateTags, onTagClick, onPlanClick, onUpdateTask, availableMarkers, planTitles, isCompleted
 }) => {
   const [tagModalId, setTagModalId] = useState<string | null>(null);
   const planName = todo.linkedJournalId && planTitles ? planTitles[todo.linkedJournalId] : null;
@@ -190,12 +224,20 @@ const ActionItem: React.FC<{
               </div>
               
               <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                 {/* Plan Badge */}
+                 {/* Plan Badge (Clickable) */}
                  {planName && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-100 uppercase tracking-wide truncate max-w-[150px]">
+                    <button 
+                      onClick={() => onPlanClick && todo.linkedJournalId ? onPlanClick(todo.linkedJournalId) : undefined}
+                      className={cx(
+                        "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wide truncate max-w-[150px] transition-colors",
+                        onPlanClick 
+                          ? "bg-purple-50 text-purple-700 border-purple-100 hover:bg-purple-100 hover:border-purple-200 cursor-pointer" 
+                          : "bg-purple-50 text-purple-700 border-purple-100 cursor-default"
+                      )}
+                    >
                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                        {planName}
-                    </span>
+                    </button>
                  )}
 
                  {/* Date Badge */}
@@ -213,12 +255,16 @@ const ActionItem: React.FC<{
                  {todo.markerIds?.map(mid => {
                    const m = getMarker(mid);
                    if (!m) return null;
+                   
+                   const buttonClass = "inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-600 uppercase tracking-wide transition-colors";
+                   const hoverClass = onTagClick ? "hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 cursor-pointer" : "cursor-default";
+
                    if (onTagClick) {
                       return (
                          <button 
                            key={mid} 
                            onClick={() => onTagClick(mid)}
-                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-600 uppercase tracking-wide hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-colors"
+                           className={cx(buttonClass, hoverClass)}
                          >
                             <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                             {m.shortName || m.name}
@@ -226,7 +272,7 @@ const ActionItem: React.FC<{
                       );
                    }
                    return (
-                      <span key={mid} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-600 uppercase tracking-wide">
+                      <span key={mid} className={buttonClass}>
                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
                          {m.shortName || m.name}
                       </span>
@@ -296,6 +342,7 @@ const ActionList: React.FC<Props> = ({
   onUpdateTags,
   onUpdateTask,
   onTagClick,
+  onPlanClick,
   onDelete, 
   onAdd,
   variant = 'card',
@@ -353,7 +400,7 @@ const ActionList: React.FC<Props> = ({
   if (todos.length === 0 && !onAdd) return null;
 
   const itemProps = {
-    onToggle, onUpdateTags, onUpdateTask, onTagClick, onDelete, 
+    onToggle, onUpdateTags, onUpdateTask, onTagClick, onPlanClick, onDelete, 
     availableMarkers, planTitles,
     startEditing, cancelEditing, saveEditing,
     editTaskText, setEditTaskText, editDueDate, setEditDueDate

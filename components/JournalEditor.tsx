@@ -1,23 +1,145 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { MarkerHistory, JournalPlan, MeasurementTodo } from '../types';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MarkerHistory, JournalPlan, MeasurementTodo, JournalGoal } from '../types';
 import ActionList from './ActionList';
-import { formatDate } from '../utils';
+import { formatDate, formatNumber, getStatusColor, getStatusText } from '../utils';
 
 interface Props {
   plan?: JournalPlan | null; // If null, creating new
-  allMarkers: MarkerHistory[]; // Changed from BloodMarker to MarkerHistory to get status
+  allMarkers: MarkerHistory[]; // Marker history + status
   linkedTodos: MeasurementTodo[]; // Todos specifically linked to this plan
-  onSave: (title: string, content: string, markerIds: string[], startDate?: string, targetDate?: string) => Promise<string>; // Updated sig
+  onSave: (
+    title: string,
+    content: string,
+    markerIds: string[],
+    startDate: string | undefined,
+    targetDate: string | undefined,
+    goals: JournalGoal[]
+  ) => Promise<string>;
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
   onAddTodo: (task: string, journalId: string) => Promise<void>;
   onToggleTodo: (id: string, done: boolean) => void;
   onDeleteTodo: (id: string) => void;
   onUpdateTodoTask: (id: string, task: string, date: string | null) => Promise<void>;
+  onUpdateTags?: (id: string, tags: string[]) => void;
 }
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
+const AUTOSAVE_DELAY_MS = 1200;
+
+const todayLocalISO = () => new Date().toLocaleDateString('en-CA');
+
+function sanitizeHtmlUnsafe(html: string): string {
+  if (!html) return '';
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const blockedTags = ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'form', 'input', 'button', 'textarea', 'select', 'option', 'svg'];
+    for (const tag of blockedTags) {
+      doc.querySelectorAll(tag).forEach(el => el.remove());
+    }
+    return doc.body.innerHTML;
+  } catch {
+    return String(html).replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+  }
+}
+
+function normalizeOptionalDate(v: string): string | undefined {
+  const t = (v || '').trim();
+  return t ? t : undefined;
+}
+
+const SidebarGoalItem: React.FC<{ goal: JournalGoal; markerName: string; unit: string; onDelete: () => void }> = ({ goal, markerName, unit, onDelete }) => {
+  const isRange = goal.direction === 'range';
+  
+  return (
+    <div className="group flex items-center justify-between p-3 rounded-xl bg-white border border-slate-200 shadow-sm text-xs mb-2 transition-all hover:shadow-md">
+      <div>
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="text-[10px]">🎯</span>
+          <span className="font-bold text-slate-700">{markerName}</span>
+        </div>
+        <div className="text-slate-500 font-medium flex items-center gap-1">
+          Mål: 
+          {isRange ? (
+            <span className="font-bold text-indigo-600 bg-indigo-50 px-1 rounded">
+              {goal.targetValue} - {goal.targetValueUpper}
+            </span>
+          ) : (
+             <>
+               {goal.direction === 'higher' ? '>' : '<'} 
+               <span className="font-bold text-indigo-600 bg-indigo-50 px-1 rounded">{goal.targetValue}</span>
+             </>
+          )}
+          {unit}
+        </div>
+      </div>
+      <button onClick={onDelete} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-rose-50 rounded-lg">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+  );
+};
+
+const SidebarDeviationCard: React.FC<{ marker: MarkerHistory; onAdd: () => void }> = ({ marker, onAdd }) => {
+  const isHigh = marker.status === 'high';
+  const val = marker.latestMeasurement?.value;
+  const date = marker.latestMeasurement?.date;
+
+  return (
+    <button 
+      onClick={onAdd}
+      className="group relative w-full text-left bg-white rounded-2xl border border-slate-200 p-4 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all overflow-hidden"
+    >
+      {/* Status Bar Indicator */}
+      <div className={cx(
+        "absolute left-0 top-0 bottom-0 w-1",
+        isHigh ? "bg-rose-500" : "bg-amber-500"
+      )} />
+
+      <div className="flex justify-between items-start mb-2 pl-2">
+         <div>
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{marker.shortName}</div>
+            <div className="font-bold text-slate-800 text-sm leading-tight">{marker.name}</div>
+         </div>
+         <span className={cx(
+           "text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide",
+           isHigh ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"
+         )}>
+           {isHigh ? 'Högt' : 'Lågt'}
+         </span>
+      </div>
+
+      <div className="flex items-baseline gap-1.5 mb-2 pl-2">
+         <span className={cx(
+           "text-2xl font-display font-bold tracking-tight",
+           isHigh ? "text-rose-700" : "text-amber-700"
+         )}>
+           {formatNumber(val)}
+         </span>
+         <span className="text-xs font-semibold text-slate-500">{marker.unit}</span>
+      </div>
+
+      <div className="flex items-center justify-between pl-2 border-t border-slate-50 pt-2 mt-1">
+         <div className="text-[10px] text-slate-400 font-medium">
+            Ref: {marker.minRef}-{marker.maxRef}
+         </div>
+         <div className="text-[10px] text-slate-300 font-semibold">
+            {date ? formatDate(date) : ''}
+         </div>
+      </div>
+
+      {/* Hover Action Overlay */}
+      <div className="absolute inset-0 bg-white/90 backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+         <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm bg-indigo-50 px-3 py-1.5 rounded-full shadow-sm ring-1 ring-indigo-100 transform scale-95 group-hover:scale-100 transition-transform">
+            <span>+</span> Lägg till i plan
+         </div>
+      </div>
+    </button>
+  );
+};
 
 const JournalEditor: React.FC<Props> = ({
   plan,
@@ -29,405 +151,476 @@ const JournalEditor: React.FC<Props> = ({
   onAddTodo,
   onToggleTodo,
   onDeleteTodo,
-  onUpdateTodoTask
+  onUpdateTodoTask,
+  onUpdateTags
 }) => {
   // Editor State
   const [title, setTitle] = useState(plan?.title || '');
   const [markerIds, setMarkerIds] = useState<string[]>(plan?.linkedMarkerIds || []);
-  
+  const [goals, setGoals] = useState<JournalGoal[]>(plan?.goals || []);
+
+  // Goal Creation State (Sidebar)
+  const [isAddingGoal, setIsAddingGoal] = useState(false);
+  const [newGoalMarkerId, setNewGoalMarkerId] = useState('');
+  const [newGoalDirection, setNewGoalDirection] = useState<'higher' | 'lower' | 'range'>('higher');
+  const [newGoalValue, setNewGoalValue] = useState('');
+  const [newGoalValueUpper, setNewGoalValueUpper] = useState(''); // Only for Range
+
   // Date State
-  const [startDate, setStartDate] = useState<string>(plan?.startDate || new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState<string>(plan?.startDate || todayLocalISO());
   const [targetDate, setTargetDate] = useState<string>(plan?.targetDate || '');
 
   // UI State
   const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false); // New state for visual feedback
+  const [saveSuccess, setSaveSuccess] = useState(false); 
   const [isDeleting, setIsDeleting] = useState(false);
   const [tempId, setTempId] = useState<string | null>(plan?.id || null);
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // ContentEditable ref
-  const editorRef = useRef<HTMLDivElement>(null);
-  const [isDirty, setIsDirty] = useState(false);
-
-  useEffect(() => {
-    if (editorRef.current && plan?.content) {
-      editorRef.current.innerHTML = plan.content;
-    }
-  }, [plan?.id]); 
   
-  // Update tempId if plan changes (e.g. after save in App.tsx)
+  // Search State
+  const [markerSearch, setMarkerSearch] = useState('');
+
+  const [isDirty, setIsDirty] = useState(false);
+  const [editTick, setEditTick] = useState(0);
+
+  const editorRef = useRef<HTMLDivElement>(null);
+  const savingRef = useRef(false);
+  const saveSeqRef = useRef(0);
+
+  const markDirty = useCallback(() => {
+    setIsDirty(true);
+    setEditTick(t => t + 1);
+    setSaveSuccess(false);
+  }, []);
+
+  // Sync state
   useEffect(() => {
-      if (plan?.id) setTempId(plan.id);
+    setTitle(plan?.title ?? '');
+    setMarkerIds(plan?.linkedMarkerIds ?? []);
+    setGoals(plan?.goals ?? []);
+    setStartDate(plan?.startDate ?? todayLocalISO());
+    setTargetDate(plan?.targetDate ?? '');
+    setTempId(plan?.id ?? null);
+    setIsDirty(false);
+    setSaveSuccess(false);
+    setEditTick(t => t + 1);
+
+    if (editorRef.current) {
+      const safe = sanitizeHtmlUnsafe(plan?.content ?? '');
+      editorRef.current.innerHTML = safe;
+    }
   }, [plan?.id]);
 
-  // --- Logic for Sidebar ---
-  
-  // 1. Attention Markers (Not 'normal' status)
-  const attentionMarkers = useMemo(() => {
-    return allMarkers.filter(m => m.status !== 'normal');
-  }, [allMarkers]);
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
 
-  // 2. Search Results (All markers matching search)
-  const searchResults = useMemo(() => {
-    if (!searchTerm.trim()) return [];
-    const lower = searchTerm.toLowerCase();
-    return allMarkers.filter(m => 
-      m.name.toLowerCase().includes(lower) || 
-      m.shortName.toLowerCase().includes(lower)
+  const markerById = useMemo(() => new Map(allMarkers.map(m => [m.id, m])), [allMarkers]);
+
+  // Derived Lists
+  const { unhandledMarkers, linkedMarkersList } = useMemo(() => {
+    const linked = markerIds.map(id => markerById.get(id)).filter(Boolean) as MarkerHistory[];
+    // Unhandled: Abnormal status AND NOT in markerIds
+    const deviations = allMarkers.filter(m => 
+      m.status !== 'normal' && 
+      !m.isIgnored && 
+      !markerIds.includes(m.id)
     );
-  }, [allMarkers, searchTerm]);
+    return { unhandledMarkers: deviations, linkedMarkersList: linked };
+  }, [allMarkers, markerIds, markerById]);
 
-  // --- Toolbar Commands ---
-  const execCmd = (command: string, value: string | undefined = undefined) => {
-    document.execCommand(command, false, value);
-    editorRef.current?.focus();
-  };
+  // Search Results (Sidebar)
+  const searchResults = useMemo(() => {
+    if (!markerSearch) return [];
+    const q = markerSearch.toLowerCase();
+    return allMarkers.filter(m => 
+      !markerIds.includes(m.id) && 
+      (m.name.toLowerCase().includes(q) || m.shortName.toLowerCase().includes(q))
+    ).slice(0, 8);
+  }, [allMarkers, markerIds, markerSearch]);
 
-  const handleSave = async () => {
-    if (!title.trim()) return null;
-    setIsSaving(true);
-    setSaveSuccess(false);
+  const execCmd = useCallback(
+    (command: string, value?: string) => {
+      document.execCommand(command, false, value);
+      editorRef.current?.focus();
+      markDirty();
+    },
+    [markDirty]
+  );
+
+  const handleAddGoal = useCallback(() => {
+    if (!newGoalMarkerId || !newGoalValue) return;
     
-    try {
-      const content = editorRef.current?.innerHTML || '';
-      const newId = await onSave(title, content, markerIds, startDate, targetDate);
-      setTempId(newId);
-      setIsDirty(false);
-      
-      // Trigger Success Animation
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
-      
-      return newId;
-    } catch (e) {
-      console.error(e);
-      return null;
-    } finally {
-      setIsSaving(false);
+    const val = parseFloat(newGoalValue.replace(',', '.'));
+    if (isNaN(val)) return;
+
+    let valUpper: number | undefined = undefined;
+    if (newGoalDirection === 'range') {
+        const up = parseFloat(newGoalValueUpper.replace(',', '.'));
+        if (isNaN(up)) return;
+        valUpper = up;
+        // Ensure min is lower than max
+        if (val > up) return alert("Lägsta värde måste vara mindre än högsta.");
     }
+
+    setGoals(prev => [
+      ...prev, 
+      { 
+          markerId: newGoalMarkerId, 
+          direction: newGoalDirection, 
+          targetValue: val,
+          targetValueUpper: valUpper 
+      }
+    ]);
+    
+    // Auto-link if needed
+    if (!markerIds.includes(newGoalMarkerId)) {
+        setMarkerIds(prev => [...prev, newGoalMarkerId]);
+    }
+
+    setNewGoalMarkerId('');
+    setNewGoalValue('');
+    setNewGoalValueUpper('');
+    setIsAddingGoal(false);
+    markDirty();
+  }, [newGoalMarkerId, newGoalValue, newGoalValueUpper, newGoalDirection, markerIds, markDirty]);
+
+  const removeGoal = (idx: number) => {
+    setGoals(prev => prev.filter((_, i) => i !== idx));
+    markDirty();
   };
 
-  const handleDelete = async () => {
+  const validateBeforeSave = useCallback((): string | null => {
+    if (!title.trim()) return 'Ange en rubrik innan du sparar.';
+    if (targetDate && startDate && targetDate < startDate) return 'Måldatum kan inte vara före startdatum.';
+    return null;
+  }, [startDate, targetDate, title]);
+
+  const handleSave = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const validationError = validateBeforeSave();
+      if (validationError) {
+        if (!opts?.silent) alert(validationError);
+        return;
+      }
+
+      if (savingRef.current) return;
+      savingRef.current = true;
+      const mySeq = ++saveSeqRef.current;
+      setIsSaving(true);
+
+      try {
+        const raw = editorRef.current?.innerHTML || '';
+        const safe = sanitizeHtmlUnsafe(raw);
+
+        const id = await onSave(
+          title.trim(),
+          safe,
+          markerIds,
+          normalizeOptionalDate(startDate),
+          normalizeOptionalDate(targetDate),
+          goals
+        );
+
+        if (mySeq !== saveSeqRef.current) return;
+
+        setTempId(id);
+        setIsDirty(false);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 2500);
+
+        if (editorRef.current && editorRef.current.innerHTML !== safe) {
+          editorRef.current.innerHTML = safe;
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setIsSaving(false);
+        savingRef.current = false;
+      }
+    },
+    [markerIds, onSave, startDate, targetDate, title, validateBeforeSave, goals]
+  );
+
+  useEffect(() => {
+    if (!isDirty || !title.trim() || savingRef.current) return;
+    const t = window.setTimeout(() => handleSave({ silent: true }), AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [editTick, handleSave, isDirty, title]);
+
+  const handleDelete = useCallback(async () => {
     if (!tempId) return;
     if (!window.confirm('Är du säker på att du vill ta bort denna plan? Detta går inte att ångra.')) return;
-    
     setIsDeleting(true);
     try {
       await onDelete(tempId);
       onClose();
     } catch (e) {
-      console.error(e);
       alert('Kunde inte ta bort planen.');
+    } finally {
       setIsDeleting(false);
     }
-  };
-  
-  const toggleMarker = (id: string) => {
-    setMarkerIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-    setIsDirty(true);
-    setSearchTerm(''); // Clear search after picking
-  };
+  }, [onClose, onDelete, tempId]);
 
-  const handleAddTodoInternal = async (task: string) => {
-    let currentId = tempId;
-    
-    // If we are in "New Plan" mode (no ID yet), we MUST save first to get an ID
-    if (!currentId) {
-       if (!title.trim()) {
-         alert("Ange en rubrik för din plan innan du lägger till uppgifter.");
-         return;
-       }
-       // Automatically save to establish the link
-       const savedId = await handleSave();
-       if (savedId) {
-           currentId = savedId;
-       } else {
-           return; // Save failed
-       }
-    }
-    
-    if (currentId) {
-      await onAddTodo(task, currentId);
-    }
-  };
+  const toggleMarker = useCallback((id: string) => {
+      setMarkerIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+      markDirty();
+  }, [markDirty]);
 
-  const todoProgress = linkedTodos.length > 0 
-    ? Math.round((linkedTodos.filter(t => t.done).length / linkedTodos.length) * 100) 
-    : 0;
+  const handleAddTodoInternal = useCallback(async (task: string) => {
+      let currentId = tempId;
+      if (!currentId) {
+        await handleSave({ silent: true });
+        if(!currentId) return alert("Spara planen först innan du lägger till uppgifter.");
+      }
+      await onAddTodo(task, currentId!);
+  }, [tempId, handleSave, onAddTodo]);
+
+  const todoStats = useMemo(() => {
+    const total = linkedTodos.length;
+    const done = linkedTodos.filter(t => t.done).length;
+    return { total, done };
+  }, [linkedTodos]);
+
+  const handleClose = useCallback(() => {
+    if (isDirty) {
+      if(!window.confirm('Du har osparade ändringar. Vill du stänga ändå?')) return;
+    }
+    onClose();
+  }, [isDirty, onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-50 flex flex-col animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 bg-slate-100/50 flex flex-col animate-in fade-in duration-200">
       
-      {/* 1. TOP BAR */}
-      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-4 sm:px-8 shadow-sm z-20">
+      {/* 1. HEADER */}
+      <header className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-4 sm:px-6 shadow-sm z-20">
         <div className="flex items-center gap-4">
-          <button 
-            onClick={onClose} 
-            className="p-2 -ml-2 text-slate-500 hover:text-slate-900 rounded-full hover:bg-slate-100 transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+          <button onClick={handleClose} className="text-slate-500 hover:text-slate-900 flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            <span className="text-sm font-semibold hidden sm:inline">Tillbaka</span>
           </button>
           
-          <div className="hidden sm:flex items-center gap-2">
-             {/* Status Indicator */}
-             {isDirty ? (
-                <span className="text-xs font-bold text-amber-600 uppercase tracking-widest bg-amber-50 px-2 py-1 rounded-md">
-                   Osparade ändringar
-                </span>
-             ) : (
-                <span className={cx(
-                   "text-xs font-bold uppercase tracking-widest px-2 py-1 rounded-md transition-colors flex items-center gap-1.5",
-                   saveSuccess ? "text-emerald-700 bg-emerald-50" : "text-slate-400"
-                )}>
-                   {saveSuccess && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                   Sparat
-                </span>
-             )}
-          </div>
+          <div className="h-4 w-px bg-slate-200 hidden sm:block" />
+          
+          <span className={cx("text-xs font-bold uppercase tracking-widest transition-colors", saveSuccess ? "text-emerald-600" : "text-slate-400")}>
+            {isSaving ? 'Sparar...' : isDirty ? 'Osparade ändringar...' : 'Sparat'}
+          </span>
         </div>
 
         <div className="flex items-center gap-3">
-           {tempId && (
-             <button 
-               onClick={handleDelete}
-               disabled={isDeleting}
-               className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-full transition-colors mr-2"
-               title="Ta bort plan"
-             >
-               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-             </button>
-           )}
-
-           {tempId && linkedTodos.length > 0 && (
-             <div className="hidden sm:flex items-center gap-2 mr-4">
-                <div className="w-24 h-2 bg-slate-200 rounded-full overflow-hidden">
-                   <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${todoProgress}%` }} />
-                </div>
-                <span className="text-xs font-bold text-slate-600">{todoProgress}% klart</span>
-             </div>
-           )}
-           
-           <button 
-             onClick={() => handleSave()} 
-             disabled={isSaving}
-             className={cx(
-                "px-5 py-2 text-sm font-bold rounded-lg disabled:opacity-50 transition-all shadow-md flex items-center gap-2 min-w-[110px] justify-center",
-                saveSuccess 
-                  ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/20 scale-105"
-                  : "bg-slate-900 text-white hover:bg-slate-800"
-             )}
-           >
-             {isSaving ? (
-                <>
-                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                   <span>Sparar...</span>
-                </>
-             ) : saveSuccess ? (
-                <>
-                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                   <span>Sparat!</span>
-                </>
-             ) : (
-                'Spara plan'
-             )}
-           </button>
+          {tempId && (
+            <button onClick={handleDelete} disabled={isDeleting} className="p-2 text-slate-400 hover:text-rose-600 rounded-full transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            </button>
+          )}
+          <button onClick={() => handleSave()} disabled={isSaving} className={cx("px-4 py-1.5 text-xs font-bold rounded-lg transition-all shadow-sm", saveSuccess ? "bg-emerald-500 text-white" : "bg-slate-900 text-white hover:bg-slate-800")}>
+            {saveSuccess ? 'Sparat!' : 'Spara'}
+          </button>
         </div>
       </header>
 
-      {/* 2. MAIN GRID */}
-      <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+      {/* 2. LAYOUT: EDITOR (Left) + SIDEBAR (Right) */}
+      <div className="flex-1 flex overflow-hidden">
         
-        {/* EDITOR AREA (Center) */}
-        <main className="flex-1 overflow-y-auto bg-slate-50 relative">
-           <div className="max-w-4xl mx-auto px-4 sm:px-8 py-8 pb-32">
-              
-              {/* THE PAPER CARD */}
-              <div className="bg-white border border-slate-300 rounded-xl shadow-sm p-6 sm:p-10 mb-8">
-                  
-                  {/* Dates Header */}
-                  <div className="flex flex-wrap gap-x-8 gap-y-4 mb-6 pb-6 border-b border-slate-100">
-                     <div className="flex flex-col gap-1">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Startdatum</label>
-                        <input 
-                           type="date" 
-                           value={startDate}
-                           onChange={e => { setStartDate(e.target.value); setIsDirty(true); }}
-                           className="text-sm font-semibold text-slate-800 bg-transparent outline-none hover:text-indigo-600 focus:text-indigo-600 transition-colors"
-                        />
-                     </div>
-                     <div className="flex flex-col gap-1">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Måldatum</label>
-                        <input 
-                           type="date" 
-                           value={targetDate}
-                           onChange={e => { setTargetDate(e.target.value); setIsDirty(true); }}
-                           className="text-sm font-semibold text-slate-800 bg-transparent outline-none hover:text-indigo-600 focus:text-indigo-600 transition-colors placeholder:text-slate-300"
-                        />
-                     </div>
-                     {plan?.updatedAt && (
-                        <div className="flex flex-col gap-1 ml-auto text-right">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Uppdaterad</label>
-                            <span className="text-sm font-medium text-slate-500">{formatDate(plan.updatedAt)}</span>
-                        </div>
+        {/* CENTER: EDITOR AREA */}
+        <main className="flex-1 overflow-y-auto bg-slate-50/50">
+          <div className="max-w-3xl mx-auto px-4 sm:px-8 py-8 pb-32">
+            
+            {/* PAPER CARD */}
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 sm:p-12 mb-8 min-h-[60vh]">
+               
+               {/* 1. TITLE */}
+               <input 
+                 type="text" 
+                 placeholder="Namnge din plan..." 
+                 value={title} 
+                 onChange={e => { setTitle(e.target.value); markDirty(); }}
+                 className="w-full text-4xl font-display font-bold text-slate-900 outline-none placeholder:text-slate-300 mb-6"
+                 autoFocus={!plan}
+               />
+
+               {/* 2. META ROW: Dates + Tags */}
+               <div className="flex flex-wrap items-center gap-y-3 gap-x-4 mb-8 pb-4 border-b border-slate-100 text-sm">
+                  {/* Dates */}
+                  <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2 py-1 border border-slate-100">
+                    <span className="text-slate-400 font-medium text-xs uppercase tracking-wide">Period:</span>
+                    <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); markDirty(); }} className="bg-transparent font-semibold text-slate-700 outline-none w-24 text-xs" />
+                    <span className="text-slate-300">→</span>
+                    <input type="date" value={targetDate} onChange={e => { setTargetDate(e.target.value); markDirty(); }} className="bg-transparent font-semibold text-slate-700 outline-none w-24 text-xs placeholder:text-slate-300" />
+                  </div>
+
+                  <div className="w-px h-6 bg-slate-200 mx-2 hidden sm:block" />
+
+                  {/* Tag Cloud (Linked Markers) */}
+                  <div className="flex flex-wrap items-center gap-2">
+                     {linkedMarkersList.length === 0 && (
+                        <span className="text-slate-300 text-xs italic">Inga markörer taggade (använd panelen till höger)</span>
                      )}
+                     {linkedMarkersList.map(m => {
+                        const hasGoal = goals.some(g => g.markerId === m.id);
+                        return (
+                           <div key={m.id} className="group relative flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-[11px] font-bold uppercase tracking-wide cursor-default transition-all hover:bg-indigo-100 hover:border-indigo-200">
+                              {hasGoal && <span className="text-[10px]">🎯</span>}
+                              {m.name}
+                              <button 
+                                onClick={() => toggleMarker(m.id)}
+                                className="ml-1 p-0.5 rounded-full hover:bg-indigo-200 text-indigo-400 hover:text-indigo-800 transition-colors"
+                              >
+                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                              </button>
+                           </div>
+                        );
+                     })}
                   </div>
+               </div>
 
-                  {/* Title Input */}
-                  <input 
-                    type="text" 
-                    placeholder="Namnge din plan..." 
-                    className="w-full text-3xl font-display font-bold text-slate-900 placeholder:text-slate-300 outline-none bg-transparent mb-4"
-                    value={title}
-                    onChange={e => { setTitle(e.target.value); setIsDirty(true); }}
-                    autoFocus={!plan}
-                  />
+               {/* 3. TOOLBAR */}
+               <div className="sticky top-0 z-10 bg-white py-2 mb-2 flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity">
+                  <ToolbarBtn onClick={() => execCmd('bold')} icon="B" label="Fet" />
+                  <ToolbarBtn onClick={() => execCmd('italic')} icon="I" label="Kursiv" />
+                  <ToolbarBtn onClick={() => execCmd('insertUnorderedList')} icon="•" label="Lista" />
+                  <ToolbarBtn onClick={() => execCmd('formatBlock', 'H3')} icon="H" label="Rubrik" />
+               </div>
 
-                  {/* Formatting Toolbar (Sticky inside card) */}
-                  <div className="sticky top-0 z-10 bg-white py-2 mb-4 border-b border-slate-100 flex items-center gap-1">
-                     <ToolbarBtn onClick={() => execCmd('bold')} icon="B" label="Fet" />
-                     <ToolbarBtn onClick={() => execCmd('italic')} icon="I" label="Kursiv" />
-                     <div className="w-px h-4 bg-slate-200 mx-1" />
-                     <ToolbarBtn onClick={() => execCmd('formatBlock', 'H2')} icon="H1" label="Rubrik" />
-                     <ToolbarBtn onClick={() => execCmd('formatBlock', 'H3')} icon="H2" label="Underrubrik" />
-                     <div className="w-px h-4 bg-slate-200 mx-1" />
-                     <ToolbarBtn onClick={() => execCmd('insertUnorderedList')} icon="•" label="Lista" />
-                     <ToolbarBtn onClick={() => execCmd('insertOrderedList')} icon="1." label="Numrerad" />
-                  </div>
+               {/* 4. CONTENT EDITOR */}
+               <div 
+                 ref={editorRef} 
+                 className="prose prose-slate prose-sm sm:prose-base max-w-none focus:outline-none min-h-[300px] empty:before:content-['Beskriv_din_strategi_här...'] empty:before:text-slate-300 empty:before:italic leading-relaxed"
+                 contentEditable 
+                 onInput={markDirty} 
+               />
+            </div>
 
-                  {/* Rich Text Area - Compact Min Height */}
-                  <div 
-                    ref={editorRef}
-                    className="prose prose-slate max-w-none focus:outline-none min-h-[150px] empty:before:content-['Beskriv_din_strategi_här...'] empty:before:text-slate-400 empty:before:italic text-base leading-relaxed"
-                    contentEditable
-                    onInput={() => setIsDirty(true)}
-                  />
-              </div>
+            {/* ACTION LIST (Below Paper) */}
+            <div className="mb-10">
+               <div className="flex items-center gap-2 mb-3 px-2">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Kopplade Åtgärder ({todoStats.done}/{todoStats.total})</h3>
+               </div>
+               <ActionList
+                  todos={linkedTodos}
+                  onToggle={onToggleTodo}
+                  onDelete={onDeleteTodo}
+                  onUpdateTask={onUpdateTodoTask}
+                  onAdd={handleAddTodoInternal}
+                  onUpdateTags={onUpdateTags}
+                  availableMarkers={allMarkers}
+                  variant="minimal"
+               />
+            </div>
 
-              {/* INTEGRATED ACTION LIST - Distinct Section */}
-              <div className="max-w-4xl mx-auto">
-                 <div className="flex items-center gap-2 mb-3 ml-1">
-                    <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
-                    <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
-                       Kopplade Åtgärder
-                    </h3>
-                 </div>
-                 
-                 <div className="bg-white/60 border border-slate-200/60 rounded-xl p-4 shadow-sm">
-                    <ActionList 
-                       todos={linkedTodos}
-                       onToggle={onToggleTodo}
-                       onDelete={onDeleteTodo}
-                       onUpdateTask={onUpdateTodoTask}
-                       onAdd={handleAddTodoInternal}
-                       variant="minimal"
-                    />
-                 </div>
-              </div>
-
-           </div>
+          </div>
         </main>
 
-        {/* SIDEBAR (Context & Tags) */}
-        <aside className="w-full md:w-80 bg-white border-l border-slate-300 flex flex-col z-10 shadow-[-4px_0_15px_-3px_rgba(0,0,0,0.05)]">
-           <div className="p-6 overflow-y-auto flex-1">
+        {/* RIGHT: SETTINGS SIDEBAR */}
+        <aside className="w-80 bg-slate-50 border-l border-slate-200 flex flex-col z-10">
+           <div className="p-5 flex flex-col h-full overflow-y-auto">
               
-              {/* SECTION 1: CURRENTLY LINKED */}
-              {markerIds.length > 0 && (
-                 <div className="mb-8 p-4 bg-indigo-50/50 rounded-xl border border-indigo-100">
-                    <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-widest mb-3">
-                       Kopplade ({markerIds.length}/{attentionMarkers.length})
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                       {markerIds.map(id => {
-                          const m = allMarkers.find(x => x.id === id);
-                          if (!m) return null;
-                          return (
-                             <span key={id} className="inline-flex items-center gap-1 px-2 py-1 bg-white text-indigo-700 rounded-md text-xs font-bold border border-indigo-200 shadow-sm">
-                                {m.shortName || m.name}
-                                <button onClick={() => toggleMarker(id)} className="hover:text-rose-500 ml-1 font-extrabold">×</button>
-                             </span>
-                          )
-                       })}
+              {/* SECTION: GOALS */}
+              <div className="mb-8">
+                 <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Målsättningar</h4>
+                 
+                 {goals.map((g, i) => {
+                    const m = markerById.get(g.markerId);
+                    return m ? <SidebarGoalItem key={i} goal={g} markerName={m.name} unit={m.unit} onDelete={() => removeGoal(i)} /> : null;
+                 })}
+
+                 {isAddingGoal ? (
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm animate-in fade-in">
+                       <select value={newGoalMarkerId} onChange={e => setNewGoalMarkerId(e.target.value)} className="w-full text-xs mb-2 p-2 rounded border border-slate-200 bg-slate-50">
+                          <option value="">Välj markör...</option>
+                          {allMarkers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                       </select>
+                       
+                       <select value={newGoalDirection} onChange={e => setNewGoalDirection(e.target.value as any)} className="w-full text-xs mb-2 p-2 rounded border border-slate-200 bg-slate-50">
+                          <option value="higher">Högre än (&gt;)</option>
+                          <option value="lower">Lägre än (&lt;)</option>
+                          <option value="range">Intervall (mellan)</option>
+                       </select>
+
+                       <div className="flex items-center gap-2 mb-2">
+                          {newGoalDirection === 'range' ? (
+                              <>
+                                <input type="number" value={newGoalValue} onChange={e => setNewGoalValue(e.target.value)} placeholder="Min" className="w-16 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
+                                <span className="text-[10px] font-bold text-slate-400">OCH</span>
+                                <input type="number" value={newGoalValueUpper} onChange={e => setNewGoalValueUpper(e.target.value)} placeholder="Max" className="w-16 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
+                              </>
+                          ) : (
+                              <input type="number" value={newGoalValue} onChange={e => setNewGoalValue(e.target.value)} placeholder="Värde" className="flex-1 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
+                          )}
+                       </div>
+
+                       <div className="flex justify-end gap-2">
+                          <button onClick={() => setIsAddingGoal(false)} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Avbryt</button>
+                          <button onClick={handleAddGoal} disabled={!newGoalMarkerId || !newGoalValue || (newGoalDirection === 'range' && !newGoalValueUpper)} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm disabled:opacity-50">Spara</button>
+                       </div>
                     </div>
+                 ) : (
+                    <button onClick={() => setIsAddingGoal(true)} className="flex items-center gap-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors w-full border border-dashed border-indigo-200 hover:border-indigo-300">
+                       <span>+</span> Lägg till mål
+                    </button>
+                 )}
+              </div>
+
+              {/* SECTION: UNHANDLED DEVIATIONS (INBOX) */}
+              <div className="mb-8">
+                 <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Att hantera</h4>
+                    {unhandledMarkers.length > 0 && <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unhandledMarkers.length}</span>}
                  </div>
-              )}
 
-              {/* SECTION 2: ATTENTION MARKERS */}
-              {attentionMarkers.length > 0 && (
-                <div className="mb-8">
-                   <h4 className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-3 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
-                      Att åtgärda
-                   </h4>
-                   <div className="flex flex-col gap-2">
-                      {attentionMarkers.map(m => {
-                         const active = markerIds.includes(m.id);
-                         return (
-                            <button
-                              key={m.id}
-                              onClick={() => toggleMarker(m.id)}
-                              className={cx(
-                                 "flex items-center justify-between w-full p-3 rounded-lg text-sm font-medium transition-all text-left border",
-                                 active ? "bg-indigo-50 border-indigo-200 text-indigo-900" : "bg-white border-slate-100 hover:border-slate-300 text-slate-700"
-                              )}
-                            >
-                               <div>
-                                  <div className="leading-tight font-bold">{m.name}</div>
-                                  <div className={cx("text-[10px] mt-0.5 font-semibold", m.status === 'high' ? 'text-rose-600' : 'text-amber-600')}>
-                                     {m.status === 'high' ? '↑ Över ref' : '↓ Under ref'}
-                                  </div>
-                               </div>
-                               {active ? (
-                                  <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                               ) : (
-                                  <div className="w-5 h-5 rounded-full border-2 border-slate-200 group-hover:border-slate-400" />
-                               )}
-                            </button>
-                         );
-                      })}
-                   </div>
-                </div>
-              )}
+                 {unhandledMarkers.length === 0 ? (
+                    <div className="text-center p-6 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+                       <span className="text-2xl block mb-2">🎉</span>
+                       <span className="text-xs font-medium text-slate-500">Inga ohanterade avvikelser</span>
+                    </div>
+                 ) : (
+                    <div className="space-y-3">
+                       {unhandledMarkers.map(m => (
+                          <SidebarDeviationCard 
+                             key={m.id}
+                             marker={m}
+                             onAdd={() => toggleMarker(m.id)}
+                          />
+                       ))}
+                    </div>
+                 )}
+              </div>
 
-              {/* SECTION 3: SEARCH */}
+              {/* SECTION: SEARCH */}
               <div>
-                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">
-                    Sök övriga markörer
-                 </h4>
-                 <div className="relative mb-3">
-                    <input 
-                       type="text" 
-                       placeholder="T.ex. Ferritin..." 
-                       value={searchTerm}
-                       onChange={e => setSearchTerm(e.target.value)}
-                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900 focus:bg-white transition-all"
-                    />
-                    <svg className="w-4 h-4 text-slate-400 absolute right-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                 <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Lägg till övriga</h4>
+                 <div className="relative">
+                   <input 
+                      type="text" 
+                      placeholder="Sök markör..." 
+                      value={markerSearch}
+                      onChange={e => setMarkerSearch(e.target.value)}
+                      className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm mb-2"
+                   />
+                   <div className="absolute right-3 top-2.5 text-slate-400 pointer-events-none">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                   </div>
                  </div>
 
-                 {/* Results */}
-                 <div className="flex flex-col gap-1">
-                    {searchResults.map(m => {
-                       const active = markerIds.includes(m.id);
-                       return (
-                          <button
-                            key={m.id}
-                            onClick={() => toggleMarker(m.id)}
-                            className={cx(
-                               "flex items-center justify-between w-full px-3 py-2 rounded-lg text-xs transition-all text-left",
-                               active ? "bg-indigo-50 text-indigo-900 font-bold" : "hover:bg-slate-100 text-slate-600"
-                            )}
+                 {searchResults.length > 0 && (
+                    <div className="space-y-1 bg-white border border-slate-100 rounded-xl p-1 shadow-sm">
+                       {searchResults.map(m => (
+                          <button 
+                             key={m.id}
+                             onClick={() => { toggleMarker(m.id); setMarkerSearch(''); }}
+                             className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors flex justify-between group"
                           >
                              <span>{m.name}</span>
-                             {active && <span className="text-indigo-600 font-bold">✓</span>}
+                             <span className="text-slate-300 group-hover:text-indigo-500">+</span>
                           </button>
-                       )
-                    })}
-                    {searchTerm && searchResults.length === 0 && (
-                       <div className="text-xs text-slate-400 text-center py-2">Inga träffar</div>
-                    )}
-                 </div>
+                       ))}
+                    </div>
+                 )}
               </div>
 
            </div>
@@ -439,11 +632,7 @@ const JournalEditor: React.FC<Props> = ({
 };
 
 const ToolbarBtn: React.FC<{ onClick: () => void; icon: string; label: string }> = ({ onClick, icon, label }) => (
-  <button 
-    onMouseDown={(e) => { e.preventDefault(); onClick(); }} // onMouseDown prevents focus loss from editor
-    className="p-1.5 min-w-[32px] h-8 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-900 font-bold text-sm flex items-center justify-center transition-colors"
-    title={label}
-  >
+  <button onMouseDown={e => { e.preventDefault(); onClick(); }} className="p-1 min-w-[24px] h-6 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-900 font-bold text-xs flex items-center justify-center transition-colors" title={label} type="button">
     {icon}
   </button>
 );

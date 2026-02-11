@@ -8,6 +8,7 @@ import {
   MarkerNote,
   MeasurementTodo,
   JournalPlan,
+  JournalGoal,
 } from './types';
 import { getStatus, safeFloat, formatNumber } from './utils';
 import BloodMarkerCard from './components/BloodMarkerCard';
@@ -73,6 +74,9 @@ const humanizeSupabaseError = (err: any) => {
   if (code === 'PGRST204' || (lower.includes('could not find the') && lower.includes('column'))) {
     return 'Databasfel: Tabellen saknar nödvändiga kolumner (t.ex. "title"). Vänligen kör SQL-migrationen för att uppdatera databasen.';
   }
+  if (code === '42P01') {
+      return 'Databasfel: Tabellen saknas (t.ex. journal_goals). Kör SQL-migrationen.';
+  }
 
   if (lower.includes('row level security') || lower.includes('violates row-level security')) {
     return 'Åtkomst nekad (Row Level Security). Kontrollera policies för tabellen.';
@@ -125,9 +129,11 @@ const CategoryGroup: React.FC<{
   title: string;
   markers: MarkerHistory[];
   onSelectMarker: (id: string) => void;
-}> = ({ title, markers, onSelectMarker }) => {
+  onToggleIgnore: (id: string) => void;
+}> = ({ title, markers, onSelectMarker, onToggleIgnore }) => {
   const total = markers.length;
-  const normalCount = markers.filter((m) => m.status === 'normal').length;
+  // Ignore counts as "normal" or at least "resolved" in the count context for green UI
+  const normalCount = markers.filter((m) => m.status === 'normal' || m.isIgnored).length;
   const isAllNormal = total > 0 && normalCount === total;
 
   // Default collapsed as requested
@@ -189,7 +195,12 @@ const CategoryGroup: React.FC<{
         <div className="overflow-hidden">
           <div className="flex flex-col gap-3 px-1 pb-2">
             {markers.map((marker) => (
-              <BloodMarkerCard key={marker.id} data={marker} onClick={() => onSelectMarker(marker.id)} />
+              <BloodMarkerCard 
+                key={marker.id} 
+                data={marker} 
+                onClick={() => onSelectMarker(marker.id)} 
+                onToggleIgnore={() => onToggleIgnore(marker.id)}
+              />
             ))}
           </div>
         </div>
@@ -262,6 +273,8 @@ const App: React.FC = () => {
   const [markerNotes, setMarkerNotes] = useState<MarkerNote[]>([]);
   const [todos, setTodos] = useState<MeasurementTodo[]>([]);
   const [journalPlans, setJournalPlans] = useState<JournalPlan[]>([]);
+  // NEW: Store user specific settings like ignored markers
+  const [ignoredMarkers, setIgnoredMarkers] = useState<Set<string>>(new Set());
 
   const [loadingData, setLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -318,13 +331,15 @@ const App: React.FC = () => {
     const missing: string[] = [];
 
     try {
-      const [markersRes, measurementsRes, notesRes, todosRes, journalRes, journalMarkersRes] = await Promise.all([
+      const [markersRes, measurementsRes, notesRes, todosRes, journalRes, journalMarkersRes, settingsRes, goalsRes] = await Promise.all([
         supabase.from('blood_markers').select('*'),
         supabase.from('measurements').select('*').eq('user_id', userId).order('measured_at', { ascending: false }),
         supabase.from('marker_notes').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('measurement_todos').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
         supabase.from('journal_entries').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-        supabase.from('journal_entry_markers').select('*'), // This might need filter if policy allows
+        supabase.from('journal_entry_markers').select('*'), 
+        supabase.from('user_marker_settings').select('*').eq('user_id', userId),
+        supabase.from('journal_goals').select('*') // NEW
       ]);
 
       if (markersRes.error) throw markersRes.error;
@@ -333,6 +348,8 @@ const App: React.FC = () => {
       const notesOk = !notesRes.error;
       const todosOk = !todosRes.error;
       const journalOk = !journalRes.error;
+      const goalsOk = !goalsRes.error;
+      const settingsOk = !settingsRes.error;
 
       setDbCapabilities({ markerNotes: notesOk, todos: todosOk, journal: journalOk });
 
@@ -347,6 +364,8 @@ const App: React.FC = () => {
       const todosData = todosOk ? (todosRes.data ?? []) : [];
       const journalData = journalOk ? (journalRes.data ?? []) : [];
       const journalMarkersData = journalMarkersRes.data ?? [];
+      const settingsData = settingsOk ? (settingsRes.data ?? []) : [];
+      const goalsData = goalsOk ? (goalsRes.data ?? []) : [];
 
       const mappedMarkers: BloodMarker[] = markersData.map((m: any) => {
         const minRef = safeFloat(m.min_ref);
@@ -422,6 +441,16 @@ const App: React.FC = () => {
             .filter((jm: any) => jm.journal_id === j.id)
             .map((jm: any) => jm.marker_id);
          
+         const goals = goalsData
+            .filter((g: any) => g.journal_id === j.id)
+            .map((g: any) => ({
+                id: g.id,
+                markerId: g.marker_id,
+                direction: g.direction,
+                targetValue: g.target_value,
+                targetValueUpper: g.target_value_upper // New Mapping
+            }));
+
          return {
             id: j.id,
             title: j.title || '',
@@ -431,8 +460,15 @@ const App: React.FC = () => {
             updatedAt: j.updated_at,
             startDate: j.start_date, // Map from DB
             targetDate: j.target_date, // Map from DB
-            linkedMarkerIds: linkedMarkers
+            linkedMarkerIds: linkedMarkers,
+            goals: goals
          }
+      });
+
+      // Parse settings
+      const ignored = new Set<string>();
+      settingsData.forEach((s: any) => {
+          if (s.is_ignored) ignored.add(s.marker_id);
       });
 
       setBloodMarkers(mappedMarkers);
@@ -440,6 +476,7 @@ const App: React.FC = () => {
       setMarkerNotes(mappedNotes);
       setTodos(mappedTodos);
       setJournalPlans(mappedPlans);
+      setIgnoredMarkers(ignored);
 
       if (missing.length) {
         setDataError(
@@ -523,11 +560,12 @@ const App: React.FC = () => {
         notes: markerNotesList,
         latestMeasurement: latest,
         status: latest ? getStatus(latest.value, marker.minRef, marker.maxRef) : 'normal',
+        isIgnored: ignoredMarkers.has(marker.id)
       });
     }
 
     return out;
-  }, [bloodMarkers, measurementsByMarkerId, notesByMarkerId]);
+  }, [bloodMarkers, measurementsByMarkerId, notesByMarkerId, ignoredMarkers]);
 
   const activeTodos = useMemo(() => todos.filter(t => !t.done), [todos]);
 
@@ -544,6 +582,10 @@ const App: React.FC = () => {
     let normalCount = 0;
 
     dashboardData.forEach((marker) => {
+      // If ignored, treat as "normal" for the big percentage score, OR simply exclude from attention list.
+      // Current requirement: "hamnar längst ner bland att-åtgärda". 
+      // This implies it IS in attention list, but sorted last.
+      
       if (marker.status !== 'normal') {
         attentionMarkers.push(marker);
       } else {
@@ -575,7 +617,12 @@ const App: React.FC = () => {
     });
 
     optimizedEvents.sort((a, b) => ts(b.goodDate) - ts(a.goodDate));
-    attentionMarkers.sort((a, b) => a.name.localeCompare(b.name));
+    
+    // Updated sorting: Ignored markers go to the BOTTOM
+    attentionMarkers.sort((a, b) => {
+        if (a.isIgnored !== b.isIgnored) return a.isIgnored ? 1 : -1;
+        return a.name.localeCompare(b.name);
+    });
 
     // Calculate Coverage
     // How many attention markers have at least one active todo linked to them?
@@ -611,8 +658,8 @@ const App: React.FC = () => {
       statusFilter === 'all'
         ? byQuery
         : statusFilter === 'attention'
-          ? byQuery.filter((m) => m.status !== 'normal')
-          : byQuery.filter((m) => m.status === 'normal');
+          ? byQuery.filter((m) => m.status !== 'normal' || m.isIgnored) // Include ignored here so we can see them in attention list
+          : byQuery.filter((m) => m.status === 'normal' && !m.isIgnored);
 
     const sorted = [...byStatus];
 
@@ -622,6 +669,9 @@ const App: React.FC = () => {
       sorted.sort((a, b) => ts(b.latestMeasurement?.date) - ts(a.latestMeasurement?.date));
     } else {
       sorted.sort((a, b) => {
+        // ALWAYS put ignored markers at the bottom regardless of rank, unless filtering specifically
+        if (a.isIgnored !== b.isIgnored) return a.isIgnored ? 1 : -1;
+
         const s = statusRank(a.status) - statusRank(b.status);
         if (s !== 0) return s;
         const rec = ts(b.latestMeasurement?.date) - ts(a.latestMeasurement?.date);
@@ -644,7 +694,11 @@ const App: React.FC = () => {
     }
 
     const entries = Array.from(groups.entries()).map(([category, markers]) => {
-      const attentionCount = markers.filter((m) => m.status !== 'normal').length;
+      // Attention count logic: exclude ignored from the red badge count maybe? 
+      // Requirement said "ignored markers... in attention list". 
+      // But usually "needs attention" implies action. 
+      // Let's count them but visual distinction handles the rest.
+      const attentionCount = markers.filter((m) => m.status !== 'normal' && !m.isIgnored).length;
       return { category, markers, attentionCount };
     });
 
@@ -675,6 +729,45 @@ const App: React.FC = () => {
     const el = document.getElementById('marker-list-top');
     if (el) el.scrollIntoView({ behavior: 'smooth' });
   }, []);
+
+  const handleToggleIgnore = useCallback(async (markerId: string) => {
+    if (!session?.user) return;
+    
+    const isCurrentlyIgnored = ignoredMarkers.has(markerId);
+    const newValue = !isCurrentlyIgnored;
+
+    try {
+        const { error } = await supabase
+            .from('user_marker_settings')
+            .upsert({ 
+                user_id: session.user.id, 
+                marker_id: markerId, 
+                is_ignored: newValue 
+            }, { onConflict: 'user_id, marker_id' });
+        
+        if (error) throw error;
+        
+        // Optimistic update / refresh
+        const next = new Set(ignoredMarkers);
+        if (newValue) next.add(markerId);
+        else next.delete(markerId);
+        setIgnoredMarkers(next);
+
+        showToast({ 
+            type: 'info', 
+            title: newValue ? 'Avvikelse ignorerad' : 'Avvikelse bevakas', 
+            message: newValue ? 'Markören flyttas till botten av listan.' : 'Markören sorteras normalt igen.' 
+        });
+
+    } catch (err: any) {
+        // If table doesn't exist, we can't persist. 
+        if (err.code === '42P01') {
+             showToast({ type: 'error', title: 'Funktionen saknas', message: 'Tabellen user_marker_settings saknas. Kör SQL-migration.' });
+        } else {
+             showToast({ type: 'error', title: 'Fel', message: 'Kunde inte ändra inställning.' });
+        }
+    }
+  }, [session?.user, ignoredMarkers, showToast]);
 
   // -----------------------------
   // Writes (DB-only)
@@ -1035,7 +1128,14 @@ const App: React.FC = () => {
   );
 
   // --- JOURNAL ACTIONS ---
-  const handleSaveJournalPlan = useCallback(async (title: string, content: string, markerIds: string[], startDate?: string, targetDate?: string) => {
+  const handleSaveJournalPlan = useCallback(async (
+    title: string, 
+    content: string, 
+    markerIds: string[], 
+    startDate: string | undefined, 
+    targetDate: string | undefined,
+    goals: JournalGoal[]
+  ) => {
       if (!session?.user) throw new Error("No user");
       
       try {
@@ -1064,8 +1164,7 @@ const App: React.FC = () => {
         if (error) throw error;
         savedId = data.id;
 
-        // 2. Sync Markers (Delete old, insert new - simpler than diffing)
-        // Only do this if markers changed or it's new. For simplicity, we just redo it.
+        // 2. Sync Markers (Delete old, insert new)
         if (savedId) {
             await supabase.from('journal_entry_markers').delete().eq('journal_id', savedId);
             if (markerIds.length > 0) {
@@ -1073,11 +1172,24 @@ const App: React.FC = () => {
                     markerIds.map(mid => ({ journal_id: savedId, marker_id: mid }))
                 );
             }
+
+            // 3. Sync Goals (New)
+            await supabase.from('journal_goals').delete().eq('journal_id', savedId);
+            if (goals.length > 0) {
+                await supabase.from('journal_goals').insert(
+                    goals.map(g => ({
+                        journal_id: savedId,
+                        marker_id: g.markerId,
+                        direction: g.direction,
+                        target_value: g.targetValue,
+                        target_value_upper: g.targetValueUpper // New field
+                    }))
+                );
+            }
         }
 
         await fetchData();
         
-        // Update editingPlan state so UI knows we are editing a saved plan now
         if (editingPlan) {
             setEditingPlan({
                 id: data.id,
@@ -1088,7 +1200,8 @@ const App: React.FC = () => {
                 startDate: data.start_date,
                 targetDate: data.target_date,
                 isPinned: data.is_pinned,
-                linkedMarkerIds: markerIds
+                linkedMarkerIds: markerIds,
+                goals: goals // Optimistic update
             });
         }
 
@@ -1174,6 +1287,7 @@ const App: React.FC = () => {
              onToggleTodo={handleToggleTodo}
              onDeleteTodo={handleDeleteTodo}
              onUpdateTodoTask={handleUpdateTodoTask}
+             onUpdateTags={handleUpdateTodoTags} // NEW: Allows tagging inside journal
           />
       );
   }
@@ -1218,6 +1332,7 @@ const App: React.FC = () => {
         onDeleteTodo={handleDeleteTodo}
         onDeleteMeasurement={handleDeleteMeasurement}
         onUpdateMeasurement={handleUpdateMeasurement}
+        onToggleIgnore={handleToggleIgnore}
         allMarkers={bloodMarkers}
         onUpdateTags={handleUpdateTodoTags}
       />
@@ -1339,6 +1454,7 @@ const App: React.FC = () => {
               plans={journalPlans} 
               markers={bloodMarkers} 
               onOpenPlan={(p) => setEditingPlan(p || 'new')} 
+              onDeletePlan={handleDeleteJournalPlan} // Passed here
            />
         ) : (
            // DASHBOARD VIEW
@@ -1363,6 +1479,11 @@ const App: React.FC = () => {
                   onToggle={handleToggleTodo}
                   onDelete={handleDeleteTodo}
                   onTagClick={setSelectedMarkerId}
+                  onPlanClick={(journalId) => {
+                     // Find and open the plan
+                     const plan = journalPlans.find(p => p.id === journalId);
+                     if(plan) setEditingPlan(plan);
+                  }}
                   planTitles={planTitles}
                 />
               )}
@@ -1492,12 +1613,17 @@ const App: React.FC = () => {
                     <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
                       {statusFilter === 'all' ? (
                         groupedData.map(({ category, markers }) => (
-                          <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} />
+                          <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} onToggleIgnore={handleToggleIgnore} />
                         ))
                       ) : (
                         <div className="flex flex-col gap-3 px-1">
                           {filteredDashboardData.map(marker => (
-                             <BloodMarkerCard key={marker.id} data={marker} onClick={() => setSelectedMarkerId(marker.id)} />
+                             <BloodMarkerCard 
+                              key={marker.id} 
+                              data={marker} 
+                              onClick={() => setSelectedMarkerId(marker.id)} 
+                              onToggleIgnore={() => handleToggleIgnore(marker.id)}
+                            />
                           ))}
                         </div>
                       )}

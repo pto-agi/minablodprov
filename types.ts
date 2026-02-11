@@ -62,6 +62,14 @@ export interface MeasurementTodo {
   updatedAt: string;
 }
 
+export interface JournalGoal {
+  id?: string; // Optional because it might be a temp ID before save
+  markerId: string;
+  direction: 'higher' | 'lower' | 'range';
+  targetValue: number; // For single direction or Min value in range
+  targetValueUpper?: number; // For Max value in range
+}
+
 export interface JournalPlan {
   id: string;
   title: string;
@@ -72,6 +80,7 @@ export interface JournalPlan {
   targetDate?: string; // New (Plan slutförd/Mål)
   isPinned: boolean;
   linkedMarkerIds: string[];
+  goals?: JournalGoal[]; // New: Gamified goals
 }
 
 export interface MarkerHistory extends BloodMarker {
@@ -79,6 +88,7 @@ export interface MarkerHistory extends BloodMarker {
   notes: MarkerNote[];
   latestMeasurement: Measurement | undefined;
   status: HealthStatus;
+  isIgnored?: boolean; // New: If true, user wants to ignore this marker's deviation
 }
 
 export interface OptimizationEvent {

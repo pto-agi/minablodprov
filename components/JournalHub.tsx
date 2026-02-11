@@ -7,11 +7,12 @@ interface Props {
   plans: JournalPlan[];
   markers: BloodMarker[];
   onOpenPlan: (plan: JournalPlan | null) => void;
+  onDeletePlan: (id: string) => void;
 }
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 
-const JournalHub: React.FC<Props> = ({ plans, markers, onOpenPlan }) => {
+const JournalHub: React.FC<Props> = ({ plans, markers, onOpenPlan, onDeletePlan }) => {
   const getMarkerNames = (ids: string[]) => {
     return ids.map(id => markers.find(m => m.id === id)?.shortName).filter(Boolean).slice(0, 3);
   };
@@ -52,13 +53,27 @@ const JournalHub: React.FC<Props> = ({ plans, markers, onOpenPlan }) => {
              const plainText = plan.content.replace(/<[^>]+>/g, '').substring(0, 120) + '...';
 
              return (
-               <button 
+               <div 
                  key={plan.id}
                  onClick={() => onOpenPlan(plan)}
-                 className="group text-left bg-white p-6 rounded-[2rem] shadow-sm ring-1 ring-slate-900/5 hover:shadow-md hover:ring-slate-900/10 transition-all flex flex-col h-64"
+                 className="group relative bg-white p-6 rounded-[2rem] shadow-sm ring-1 ring-slate-900/5 hover:shadow-md hover:ring-slate-900/10 transition-all flex flex-col h-64 cursor-pointer"
                >
+                  {/* Delete Button */}
+                  <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm('Är du säker på att du vill ta bort denna plan?')) {
+                            onDeletePlan(plan.id);
+                        }
+                    }}
+                    className="absolute top-4 right-4 p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-all opacity-0 group-hover:opacity-100 z-10"
+                    title="Ta bort plan"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  </button>
+
                   <div className="flex-1">
-                     <h3 className="font-display font-bold text-lg text-slate-900 mb-2 leading-tight group-hover:text-emerald-700 transition-colors">
+                     <h3 className="font-display font-bold text-lg text-slate-900 mb-2 leading-tight group-hover:text-emerald-700 transition-colors pr-8">
                         {plan.title || 'Namnlös plan'}
                      </h3>
                      <p className="text-sm text-slate-500 leading-relaxed line-clamp-3">
@@ -84,7 +99,7 @@ const JournalHub: React.FC<Props> = ({ plans, markers, onOpenPlan }) => {
                         {formatDate(plan.updatedAt)}
                      </span>
                   </div>
-               </button>
+               </div>
              );
            })}
         </div>
