@@ -1,5 +1,4 @@
 
-
 import React, { useMemo } from 'react';
 import {
   LineChart,
@@ -20,11 +19,11 @@ interface Props {
   minRef: number;
   maxRef: number;
   unit: string;
-  displayMin?: number;
+  displayMin?: number; 
   displayMax?: number;
 }
 
-const HistoryChart: React.FC<Props> = ({ measurements, minRef, maxRef, unit, displayMin, displayMax }) => {
+const HistoryChart: React.FC<Props> = ({ measurements, minRef, maxRef, unit }) => {
   const chartData = useMemo(() => {
     const sorted = [...measurements]
       .map((m) => {
@@ -40,57 +39,67 @@ const HistoryChart: React.FC<Props> = ({ measurements, minRef, maxRef, unit, dis
   const domains = useMemo(() => {
     const dataVals = chartData.map((d) => d.value).filter((v) => Number.isFinite(v));
     
-    // Determine Y-Axis Domain
-    // 1. Start with the "Visual Display" range (e.g. 0-40 for Testosterone) if available.
-    //    If not available, fallback to ref range (+ padding later).
-    let yMin = typeof displayMin === 'number' ? displayMin : minRef;
-    let yMax = typeof displayMax === 'number' ? displayMax : maxRef;
+    // --- SMART Y-AXIS SCALING ---
+    let activeMin = minRef;
+    let activeMax = maxRef;
 
-    // 2. Expand if actual data points (or ref range) are outside the display range.
+    // Expand to fit data points if they are outside ref range
     if (dataVals.length > 0) {
-      yMin = Math.min(yMin, ...dataVals);
-      yMax = Math.max(yMax, ...dataVals);
+      activeMin = Math.min(activeMin, ...dataVals);
+      activeMax = Math.max(activeMax, ...dataVals);
     }
     
-    // Ensure ref range is always visible (though displayMin/Max usually cover this)
-    yMin = Math.min(yMin, minRef);
-    yMax = Math.max(yMax, maxRef);
+    // Calculate the spread (height) of the relevant area
+    let spread = activeMax - activeMin;
 
-    // 3. Fallback auto-padding only if we didn't have display ranges and the range is tight
-    if (typeof displayMin !== 'number' && typeof displayMax !== 'number') {
-        const range = yMax - yMin;
-        if (range === 0) {
-           yMin = yMin === 0 ? 0 : yMin * 0.9;
-           yMax = yMax === 0 ? 1 : yMax * 1.1;
-        } else {
-           const pad = range * 0.15;
-           yMin -= pad;
-           yMax += pad;
-        }
+    // Edge case: If spread is 0 or extremely small (e.g. data == ref exactly), 
+    // define a default spread based on magnitude to prevent bugs
+    if (spread <= 0.000001) {
+        spread = (Math.abs(activeMax) || 1) * 0.2;
     }
 
-    // 4. Hard clamp to 0 for biological plausibility (unless displayMin was explicitly negative, which is rare)
-    // We only clamp if displayMin wasn't provided or if it's >= 0.
-    if ((typeof displayMin !== 'number' || displayMin >= 0) && yMin < 0) {
+    // Add "Breathing Room" (Padding)
+    // We add ~25% padding to top and bottom so the lines don't touch the chart edges.
+    const padding = spread * 0.35; 
+
+    let yMin = activeMin - padding;
+    let yMax = activeMax + padding;
+
+    // Biology clamp: Measurements are rarely negative. 
+    // Only allow negative axis if the data/ref itself implies it.
+    if (yMin < 0 && activeMin >= 0) {
         yMin = 0;
     }
 
-    // 5. Ensure we have a valid range
+    // Sanity check to ensure valid domain
     if (yMin >= yMax) {
        yMax = yMin + 1;
     }
 
-    // X-Axis Domain
+    // --- X-AXIS DOMAIN ---
     let xMin = chartData[0]?.t ?? 0;
     let xMax = chartData[chartData.length - 1]?.t ?? 1;
 
+    // Add 1 day padding if only one data point exists so it doesn't look weird
     if (xMin === xMax) {
-      xMin -= 24 * 60 * 60 * 1000; // -1 day
-      xMax += 24 * 60 * 60 * 1000; // +1 day
+      const dayMs = 24 * 60 * 60 * 1000;
+      xMin -= dayMs;
+      xMax += dayMs;
     }
 
     return { y: [yMin, yMax] as [number, number], x: [xMin, xMax] as [number, number] };
-  }, [chartData, minRef, maxRef, displayMin, displayMax]);
+  }, [chartData, minRef, maxRef]);
+
+  // Determine needed precision for Y-axis
+  const { y: [minY, maxY] } = domains;
+  const ySpread = maxY - minY;
+  
+  // Logic: 
+  // If spread is large (>10), use 0 decimals (e.g. 130, 140, 150).
+  // If spread is medium (2-10), use 1 decimal (e.g. 5.5, 6.0, 6.5).
+  // If spread is small (<2), use 2 decimals (e.g. 0.40, 0.45, 0.50).
+  // If spread is tiny (<0.1), use 3 decimals.
+  const axisDecimals = ySpread < 0.1 ? 3 : ySpread < 2 ? 2 : ySpread < 10 ? 1 : 0;
 
   const tickFormatter = (t: number) => {
     const d = new Date(t);
@@ -111,7 +120,7 @@ const HistoryChart: React.FC<Props> = ({ measurements, minRef, maxRef, unit, dis
 
         <div className="mt-2 flex items-baseline gap-2">
           <div className="text-emerald-200 font-bold text-sm">
-            {formatNumber(p.value)} {unit}
+            {formatNumber(p.value, axisDecimals < 2 ? 2 : axisDecimals)} {unit}
           </div>
           <div className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10">
             {status === 'normal' ? 'Inom ref' : status === 'high' ? 'Över ref' : 'Under ref'}
@@ -160,8 +169,6 @@ const HistoryChart: React.FC<Props> = ({ measurements, minRef, maxRef, unit, dis
     return <div className="w-full h-56 flex items-center justify-center text-sm text-slate-600">Ingen historik ännu.</div>;
   }
 
-  const { y: [minY, maxY] } = domains;
-
   return (
     <div className="w-full h-64">
       <ResponsiveContainer width="100%" height="100%">
@@ -187,8 +194,8 @@ const HistoryChart: React.FC<Props> = ({ measurements, minRef, maxRef, unit, dis
             axisLine={false}
             tickLine={false}
             width={42}
-            tickFormatter={(v: any) => formatNumber(Number(v), 0)} // No decimals on axis for cleaner look
-            allowDecimals={false} // Force integers on Y-axis if possible
+            tickFormatter={(v: any) => formatNumber(Number(v), axisDecimals)}
+            allowDecimals={true} 
           />
 
           <Tooltip content={<CustomTooltip />} />

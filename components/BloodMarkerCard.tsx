@@ -23,53 +23,89 @@ const MiniHistorySparkline: React.FC<{
   measurements: Measurement[];
   minRef: number;
   maxRef: number;
-  displayMin: number;
-  displayMax: number;
   className?: string;
-}> = ({ measurements, minRef, maxRef, displayMin, displayMax, className }) => {
-  // measurements are latest-first in our app
+}> = ({ measurements, minRef, maxRef, className }) => {
+  // measurements are latest-first in our app. 
+  // We take the last N points and reverse them to be chronological (oldest -> newest) for plotting.
   const points = useMemo(() => {
-    const N = 12; // Show more points now that we have space
-    const slice = measurements.slice(0, N).reverse(); // chronological
+    const N = 12; 
+    const slice = measurements.slice(0, N).reverse(); 
     return slice;
   }, [measurements]);
 
   if (!points.length) return null;
 
-  // Internal coordinate system
-  const W = 100; // % width conceptually
-  const H = 100; // % height conceptually
+  // --- DYNAMIC DOMAIN CALCULATION (Same strategy as HistoryChart) ---
+  const dataVals = points.map(p => p.value);
   
-  // We use a relative mapping. 
-  // SVG coordinate system: 0,0 is top-left.
-  
-  const range = displayMax - displayMin;
-  const safeRange = Number.isFinite(range) && range > 0 ? range : 1;
+  let activeMin = minRef;
+  let activeMax = maxRef;
 
-  const yOf = (v: number) => {
-    const clamped = clamp(v, displayMin, displayMax);
-    const ratio = (clamped - displayMin) / safeRange; // 0..1 (0 = bottom, 1 = top)
-    return H - (ratio * H); // Invert for SVG (0 at top)
+  // Expand to fit data points
+  if (dataVals.length > 0) {
+    activeMin = Math.min(activeMin, ...dataVals);
+    activeMax = Math.max(activeMax, ...dataVals);
+  }
+
+  // Calculate spread and padding
+  let spread = activeMax - activeMin;
+  
+  // Prevent zero-spread bugs
+  if (spread <= 0.000001) {
+      spread = (Math.abs(activeMax) || 1) * 0.2;
+  }
+
+  // Add ~35% padding so lines don't hit the edges hard
+  const padding = spread * 0.35;
+  
+  let domainMin = activeMin - padding;
+  let domainMax = activeMax + padding;
+
+  // Clamp bottom at 0 unless data implies negative values
+  if (domainMin < 0 && activeMin >= 0) {
+      domainMin = 0;
+  }
+  
+  if (domainMin >= domainMax) {
+      domainMax = domainMin + 1;
+  }
+
+  // --- SVG MAPPING ---
+  // Coordinate system: 0,0 is top-left. 100,100 is bottom-right.
+  const W = 100;
+  const H = 100;
+  
+  const safeRange = domainMax - domainMin;
+
+  // Function to map a value to Y-coordinate (0 at top, 100 at bottom)
+  const getY = (val: number) => {
+    // Clamp purely for drawing safety within viewbox, though dynamic domain handles most
+    const clamped = clamp(val, domainMin, domainMax);
+    const ratio = (clamped - domainMin) / safeRange; 
+    return H - (ratio * H); // Invert: Higher value = Lower Y (closer to top)
   };
 
-  const yRefMin = yOf(minRef);
-  const yRefMax = yOf(maxRef);
+  const yRefMax = getY(maxRef); // This is visually "higher" (smaller Y value)
+  const yRefMin = getY(minRef); // This is visually "lower" (larger Y value)
   
-  // Draw zones
-  // High Zone: From top (0) to yRefMax
-  const highZoneHeight = yRefMax;
+  // Calculate Zone Heights
+  // 1. High Danger Zone (Red): From top (0) down to maxRef line
+  // Note: If maxRef is above the chart domain, yRefMax is < 0. We clamp render via SVG overflow hidden, but calculation is simple:
+  // Since 0 is top, and yRefMax is the line, the rect is from 0 to yRefMax.
+  const highZoneHeight = Math.max(0, yRefMax);
   
-  // Normal Zone: From yRefMax to yRefMin
-  const normalZoneHeight = yRefMin - yRefMax;
+  // 2. Normal Zone (Green): Between maxRef and minRef
+  const normalZoneHeight = Math.max(0, yRefMin - yRefMax);
   
-  // Low Zone: From yRefMin to bottom (H)
-  const lowZoneHeight = H - yRefMin;
+  // 3. Low Danger Zone (Red): From minRef line down to bottom (100)
+  const lowZoneHeight = Math.max(0, H - yRefMin);
 
+  // X-coordinates
   const xs = points.length === 1 
     ? [50] 
     : points.map((_, i) => (i / (points.length - 1)) * 100);
     
-  const ys = points.map((p) => yOf(p.value));
+  const ys = points.map((p) => getY(p.value));
 
   const d = points
     .map((_, i) => `${i === 0 ? 'M' : 'L'} ${xs[i].toFixed(2)} ${ys[i].toFixed(2)}`)
@@ -82,10 +118,6 @@ const MiniHistorySparkline: React.FC<{
       preserveAspectRatio="none" 
       aria-label="Trend"
     >
-      <defs>
-        {/* Gradients or Patterns could go here */}
-      </defs>
-
       {/* 1. ZONES (Backgrounds) */}
       
       {/* High Danger Zone (Red) */}
@@ -117,23 +149,15 @@ const MiniHistorySparkline: React.FC<{
         const s = getStatus(p.value, minRef, maxRef);
         const isLatest = i === points.length - 1;
         
-        // Colors
         const fill = s === 'normal' ? '#0f172a' : '#ef4444'; 
         const stroke = '#ffffff';
-        
-        // We render dots as separate SVG circles. 
-        // Note: scaling circles in a stretched SVG distorts them. 
-        // To fix this perfectly requires complex CSS/SVG tricks. 
-        // For now, we accept slight distortion or use a small radius that looks okay.
-        // Or better: Use vector-effect="non-scaling-stroke" on the circle stroke? No, that doesn't fix shape.
-        // We will make them small enough that it doesn't matter too much.
         
         return (
           <g key={`${p.id}-${i}`}>
              <circle 
               cx={xs[i]} 
               cy={ys[i]} 
-              r={isLatest ? 1.5 : 1} // Relative radius (since viewBox is 0-100)
+              r={isLatest ? 1.5 : 1}
               fill={fill} 
               stroke={stroke} 
               strokeWidth="0.5"
@@ -153,11 +177,6 @@ const BloodMarkerCard: React.FC<Props> = ({ data, onClick }) => {
   const deltaInfo = useMemo(() => computeDelta(measurements), [measurements]);
 
   if (!latestMeasurement) return null;
-
-  const goalStatus =
-    goal && Number.isFinite(goal.targetMin) && Number.isFinite(goal.targetMax)
-      ? isWithinRange(latestMeasurement.value, goal.targetMin, goal.targetMax)
-      : null;
 
   const delta = deltaInfo?.delta;
   const deltaSign = delta == null ? '' : delta > 0 ? '+' : '';
@@ -254,8 +273,7 @@ const BloodMarkerCard: React.FC<Props> = ({ data, onClick }) => {
               measurements={measurements}
               minRef={minRef}
               maxRef={maxRef}
-              displayMin={displayMin}
-              displayMax={displayMax}
+              // We ignore displayMin/displayMax here to use dynamic scaling
               className="w-full h-full"
             />
          </div>
