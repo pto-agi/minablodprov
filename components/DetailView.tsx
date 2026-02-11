@@ -1,8 +1,10 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { MarkerHistory, MeasurementTodo, Measurement, MarkerNote } from '../types';
+
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import { MarkerHistory, MeasurementTodo, BloodMarker } from '../types';
 import { formatDateTime, formatDate, formatNumber } from '../utils';
 import HistoryChart from './HistoryChart';
 import ReferenceVisualizer from './ReferenceVisualizer';
+import ActionList from './ActionList'; // Import reused component
 
 // --- HJÄLPKOMPONENTER FÖR UI (Inga externa beroenden) ---
 
@@ -65,12 +67,15 @@ interface Props {
   onDeleteNote: (noteId: string) => Promise<void>;
   onUpdateMeasurementNote: (measurementId: string, note: string | null) => Promise<void>;
   todos: MeasurementTodo[];
-  onAddTodo: (measurementId: string, task: string) => Promise<void>;
+  onAddTodo: (markerId: string, task: string) => Promise<void>; // changed sig
   onToggleTodo: (todoId: string, done: boolean) => Promise<void>;
-  onUpdateTodo: (todoId: string, task: string) => Promise<void>;
+  onUpdateTodo?: (todoId: string, task: string, dueDate: string | null) => Promise<void>; // tag updates + task/date update
   onDeleteTodo: (todoId: string) => Promise<void>;
   onDeleteMeasurement?: (measurementId: string) => Promise<void>;
   onUpdateMeasurement?: (measurementId: string, value: number, date: string) => Promise<void>;
+  // Extra for tags
+  allMarkers?: BloodMarker[];
+  onUpdateTags?: (todoId: string, ids: string[]) => void;
 }
 
 type ChartRange = '1m' | '3m' | '6m' | '1y' | 'all';
@@ -85,10 +90,18 @@ const DetailView: React.FC<Props> = ({
   todos,
   onAddTodo,
   onToggleTodo,
+  onUpdateTodo,
   onDeleteTodo,
   onDeleteMeasurement,
   onUpdateMeasurement,
+  allMarkers,
+  onUpdateTags
 }) => {
+  // Scroll to top on mount
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   // --- STATE ---
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -132,7 +145,6 @@ const DetailView: React.FC<Props> = ({
   const latest = sortedMeasurements[0] ?? null;
   const previous = sortedMeasurements[1] ?? null;
 
-  // Sammanfoga mätningar och anteckningar till en tidslinje (UNIFIED TIMELINE)
   const timeline = useMemo(() => {
     const events: Array<{ type: 'measurement' | 'note', date: string, id: string, data: any }> = [];
     sortedMeasurements.forEach(m => events.push({ type: 'measurement', date: m.date, id: m.id, data: m }));
@@ -140,9 +152,8 @@ const DetailView: React.FC<Props> = ({
     return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [sortedMeasurements, data.notes]);
 
-  // Filtrera graf-data
   const chartData = useMemo(() => {
-    if (chartRange === 'all') return [...sortedMeasurements].reverse(); // Chart vill ha stigande datum
+    if (chartRange === 'all') return [...sortedMeasurements].reverse();
     const now = new Date();
     const cutoff = new Date();
     if (chartRange === '1m') cutoff.setMonth(now.getMonth() - 1);
@@ -152,7 +163,6 @@ const DetailView: React.FC<Props> = ({
     return sortedMeasurements.filter(m => new Date(m.date) >= cutoff).reverse();
   }, [sortedMeasurements, chartRange]);
 
-  // Trend analys
   const trend = useMemo(() => {
     if (!latest || !previous) return null;
     const delta = latest.value - previous.value;
@@ -160,7 +170,6 @@ const DetailView: React.FC<Props> = ({
     return { delta, pct, up: delta > 0 };
   }, [latest, previous]);
 
-  // Handlers
   const handleSaveNote = async () => {
     if(!newNoteText.trim()) return;
     await run('addNote', async () => {
@@ -189,13 +198,21 @@ const DetailView: React.FC<Props> = ({
     setConfirmDelete(null);
   };
 
+  // Add todo linked to this marker
+  const handleActionListAdd = async (task: string) => {
+    await onAddTodo(data.id, task);
+  };
+
+  const handleActionListDelete = (id: string) => {
+    setConfirmDelete({ type: 'todo', id, desc: 'uppgift' });
+  };
+
   const handleExport = async () => {
     const csv = ['Datum,Värde,Enhet,Anteckning', ...sortedMeasurements.map(m => `${m.date},${m.value},${data.unit},"${m.note||''}"`)].join('\n');
     await copyToClipboard(csv);
     pushToast({ type: 'success', message: 'Data kopierad som CSV till urklipp' });
   };
 
-  // Status visual
   const statusBadge = latest 
     ? getRangeBadge(latest.value, data.minRef, data.maxRef) 
     : { color: 'slate', bg: 'bg-slate-100', text: 'text-slate-600', label: 'Inga data', dot: 'bg-slate-400', ring: 'ring-slate-200' };
@@ -217,9 +234,8 @@ const DetailView: React.FC<Props> = ({
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 space-y-8">
 
-        {/* 2. HERO CARD: Fokus på NU och STATUS */}
+        {/* 2. HERO CARD */}
         <section className="relative overflow-hidden rounded-[2rem] bg-white shadow-xl shadow-slate-200/50 ring-1 ring-slate-900/5 p-6 sm:p-8">
-          {/* Subtle background gradient based on status */}
           <div className={cx("absolute top-0 right-0 w-64 h-64 bg-gradient-to-br opacity-20 blur-3xl rounded-full -mr-10 -mt-10 pointer-events-none", 
             statusBadge.color === 'emerald' ? 'from-emerald-400 to-teal-300' : 
             statusBadge.color === 'rose' ? 'from-rose-400 to-orange-300' : 'from-amber-400 to-yellow-300')} 
@@ -255,7 +271,6 @@ const DetailView: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Compact Visualizer */}
             {latest && (
                <div className="w-full sm:w-48 self-end">
                   <ReferenceVisualizer 
@@ -269,7 +284,7 @@ const DetailView: React.FC<Props> = ({
           </div>
         </section>
 
-        {/* 3. CHART SECTION WITH CONTROLS */}
+        {/* 3. CHART */}
         {sortedMeasurements.length > 0 && (
            <section className="bg-white rounded-3xl p-6 shadow-sm ring-1 ring-slate-900/5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -299,7 +314,7 @@ const DetailView: React.FC<Props> = ({
            </section>
         )}
 
-        {/* 4. ACTIONS & TODOS (Compact) */}
+        {/* 4. ACTIONS & TODOS */}
         <section className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-slate-900/5">
            <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -308,38 +323,19 @@ const DetailView: React.FC<Props> = ({
               <span className="text-xs font-semibold bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{todos.filter(t=>!t.done).length} kvar</span>
            </div>
            
-           <div className="space-y-1">
-              {todos.slice(0, 5).map(todo => (
-                 <div key={todo.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-xl group transition-colors">
-                    <input 
-                      type="checkbox" 
-                      checked={todo.done} 
-                      onChange={(e) => run('toggle', () => onToggleTodo(todo.id, e.target.checked))}
-                      className="w-4 h-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900 cursor-pointer" 
-                    />
-                    <span className={cx("text-sm flex-1 truncate", todo.done ? "text-slate-400 line-through" : "text-slate-700")}>{todo.task}</span>
-                    <button onClick={() => setConfirmDelete({type:'todo',id:todo.id,desc:todo.task})} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 p-1"><Icon name="trash" className="w-4 h-4"/></button>
-                 </div>
-              ))}
-              
-              {/* Quick Add Todo */}
-              <input 
-                 placeholder="+ Lägg till uppgift (Enter)..." 
-                 className="w-full text-sm bg-transparent px-2 py-2 border-b border-transparent focus:border-slate-900 outline-none placeholder:text-slate-400"
-                 onKeyDown={async (e) => {
-                    if(e.key === 'Enter' && latest) {
-                       const val = e.currentTarget.value;
-                       if(val.trim()) {
-                          await onAddTodo(latest.id, val);
-                          e.currentTarget.value = '';
-                       }
-                    }
-                 }}
-              />
-           </div>
+           <ActionList 
+             todos={todos}
+             onToggle={(id, done) => run('toggle', () => onToggleTodo(id, done))}
+             onDelete={handleActionListDelete}
+             onAdd={handleActionListAdd}
+             availableMarkers={allMarkers}
+             onUpdateTags={onUpdateTags}
+             onUpdateTask={onUpdateTodo} // Pass the task/date update handler
+             variant="minimal"
+           />
         </section>
 
-        {/* 5. UNIFIED TIMELINE (Händelselogg) */}
+        {/* 5. TIMELINE */}
         <section>
           <div className="flex items-center justify-between mb-6 px-2">
             <h3 className="text-lg font-bold text-slate-900">Händelselogg</h3>
@@ -347,7 +343,6 @@ const DetailView: React.FC<Props> = ({
 
           <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-10">
              
-             {/* Inline Note Creator */}
              {isAddingNote && (
                 <div className="relative pl-8 animate-in fade-in slide-in-from-top-2">
                    <div className="absolute -left-[9px] top-4 w-4 h-4 rounded-full bg-slate-900 ring-4 ring-slate-50" />
@@ -378,7 +373,6 @@ const DetailView: React.FC<Props> = ({
                 
                 return (
                    <div key={`${item.type}-${item.id}`} className="relative pl-8 group">
-                      {/* Timeline Dot */}
                       <div className={cx(
                          "absolute -left-[9px] top-1.5 w-4 h-4 rounded-full border-2 border-white ring-1 shadow-sm z-10",
                          isMeas ? "bg-slate-900 ring-slate-200" : "bg-amber-100 ring-amber-200"
@@ -416,7 +410,7 @@ const DetailView: React.FC<Props> = ({
                             ) : (
                                <div className="bg-amber-50/40 p-4 rounded-2xl border border-amber-100/60 hover:bg-amber-50/80 transition-all">
                                   <p className="text-slate-800 text-sm whitespace-pre-wrap leading-relaxed">{dataItem.note}</p>
-                               </div>
+                                </div>
                             )}
                          </div>
 
@@ -454,7 +448,7 @@ const DetailView: React.FC<Props> = ({
         </section>
       </div>
 
-      {/* 6. FAB (FLOATING ACTION BUTTONS) - Bättre UX på mobil */}
+      {/* 6. FAB */}
       <div className="fixed bottom-6 right-6 flex flex-col gap-4 z-50">
          <button 
             onClick={() => setIsAddingNote(prev => !prev)}
@@ -473,7 +467,7 @@ const DetailView: React.FC<Props> = ({
          </button>
       </div>
 
-      {/* --- MODALS (Enklare varianter) --- */}
+      {/* MODALS */}
       {editingMeasId && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
            <div className="bg-white w-full max-w-sm p-6 rounded-3xl shadow-2xl animate-in zoom-in-95">

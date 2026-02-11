@@ -7,6 +7,7 @@ interface Props {
   normalCount: number;
   attentionMarkers: MarkerHistory[];
   optimizedCount: number;
+  coveredAttentionCount: number; // New prop: How many attention markers have a todo
   onOptimizedClick: () => void;
   onAttentionClick?: () => void;
   actionableTodos?: ActionableTodo[];
@@ -64,6 +65,7 @@ const StatsOverview: React.FC<Props> = ({
   normalCount, 
   attentionMarkers, 
   optimizedCount,
+  coveredAttentionCount,
   onOptimizedClick,
   onAttentionClick,
   newOptimizedCount = 0
@@ -73,6 +75,12 @@ const StatsOverview: React.FC<Props> = ({
   // Calculate scores
   const healthScore = totalMarkers > 0 ? Math.round((normalCount / totalMarkers) * 100) : 0;
   const isAllOptimal = normalCount === totalMarkers;
+  const attentionCount = attentionMarkers.length;
+
+  // Plan coverage percentage (0-100)
+  const coveragePercent = attentionCount > 0 
+    ? Math.round((coveredAttentionCount / attentionCount) * 100) 
+    : 100;
 
   // Group attention markers by category
   const attentionCategories = useMemo(() => {
@@ -149,7 +157,7 @@ const StatsOverview: React.FC<Props> = ({
             {!isAllOptimal && (
               <button
                 onClick={onAttentionClick}
-                className="group relative w-full md:w-auto min-w-[220px] text-left transition-all hover:-translate-y-1 outline-none"
+                className="group relative w-full md:w-auto min-w-[240px] text-left transition-all hover:-translate-y-1 outline-none"
               >
                 {/* Glow effect behind */}
                 <div className="absolute -inset-0.5 bg-gradient-to-br from-amber-200 to-rose-200 rounded-3xl opacity-0 group-hover:opacity-100 blur transition-opacity duration-500" />
@@ -179,16 +187,32 @@ const StatsOverview: React.FC<Props> = ({
                     <span className="text-sm font-medium text-slate-600">avvikelser</span>
                   </div>
                   
-                  {/* Mini categories summary */}
-                  <div className="mt-3 flex flex-wrap gap-1.5 opacity-70 group-hover:opacity-100 transition-opacity">
-                     {attentionCategories.slice(0, 3).map(([cat]) => (
-                       <span key={cat} className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md font-bold border border-slate-200/50">
-                         {cat}
-                       </span>
-                     ))}
-                     {attentionCategories.length > 3 && (
-                       <span className="text-[10px] px-1.5 py-0.5 bg-slate-50 text-slate-400 rounded-md font-bold">+{attentionCategories.length - 3}</span>
-                     )}
+                  {/* Plan Coverage Progress */}
+                  <div className="mt-4 pt-3 border-t border-slate-200/50">
+                     <div className="flex justify-between items-center mb-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                           Planering
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-700">
+                           {coveredAttentionCount} av {attentionCount}
+                        </span>
+                     </div>
+                     <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                        <div 
+                           className={cx(
+                             "h-full rounded-full transition-all duration-1000",
+                             coveragePercent === 100 ? "bg-emerald-500" : "bg-amber-500"
+                           )}
+                           style={{ width: `${coveragePercent}%` }} 
+                        />
+                     </div>
+                     <div className="mt-1 text-[10px] text-slate-400 font-medium truncate">
+                        {coveragePercent === 100 
+                           ? "Alla avvikelser har en plan" 
+                           : coveragePercent === 0 
+                              ? "Inga åtgärder planerade än" 
+                              : "Plan finns för delar av avvikelserna"}
+                     </div>
                   </div>
                 </div>
               </button>

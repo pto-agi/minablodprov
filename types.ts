@@ -52,9 +52,11 @@ export interface MarkerNote {
 
 export interface MeasurementTodo {
   id: string;
-  measurementId: string;
+  measurementId?: string; // Kept for backward compat, but we prefer markerIds now
+  markerIds: string[]; // Array of marker IDs this todo relates to
   task: string;
   done: boolean;
+  dueDate?: string | null; // New field for deadline
   createdAt: string;
   updatedAt: string;
 }

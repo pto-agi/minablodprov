@@ -18,6 +18,7 @@ import ActionList from './components/ActionList';
 import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
 import ImportModal from './components/ImportModal';
+import GlobalTimelineDrawer from './components/GlobalTimelineDrawer';
 import { supabase } from './supabaseClient';
 import { Session } from '@supabase/supabase-js';
 
@@ -202,6 +203,7 @@ const App: React.FC = () => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [prefillMarkerId, setPrefillMarkerId] = useState<string | null>(null);
   const [isOptimizedModalOpen, setIsOptimizedModalOpen] = useState(false);
+  const [isTimelineOpen, setIsTimelineOpen] = useState(false); // Global Timeline State
 
   // DB capability flags
   const [dbCapabilities, setDbCapabilities] = useState({
@@ -372,14 +374,29 @@ const App: React.FC = () => {
         date: n.created_at,
       }));
 
-      const mappedTodos: MeasurementTodo[] = todosData.map((t: any) => ({
-        id: t.id,
-        measurementId: t.measurement_id,
-        task: t.task ?? '',
-        done: Boolean(t.is_done),
-        createdAt: t.created_at,
-        updatedAt: t.updated_at,
-      }));
+      const mappedTodos: MeasurementTodo[] = todosData.map((t: any) => {
+        // Hybrid logic: support new array col 'marker_ids', fallback to legacy 'measurement_id' (lookup marker)
+        let ids: string[] = [];
+        
+        if (Array.isArray(t.marker_ids)) {
+            ids = t.marker_ids;
+        } else if (t.measurement_id) {
+           // Fallback for old data: find the measurement, get its markerId
+           const m = mappedMeasurements.find(meas => meas.id === t.measurement_id);
+           if (m) ids = [m.markerId];
+        }
+
+        return {
+          id: t.id,
+          measurementId: t.measurement_id,
+          markerIds: ids,
+          task: t.task ?? '',
+          done: Boolean(t.is_done),
+          dueDate: t.due_date, // Map from DB
+          createdAt: t.created_at,
+          updatedAt: t.updated_at,
+        };
+      });
 
       setBloodMarkers(mappedMarkers);
       setMeasurements(mappedMeasurements);
@@ -447,16 +464,6 @@ const App: React.FC = () => {
     return map;
   }, [markerNotes]);
 
-  const todosByMeasurementId = useMemo(() => {
-    const map = new Map<string, MeasurementTodo[]>();
-    for (const t of todos) {
-      const arr = map.get(t.measurementId);
-      if (arr) arr.push(t);
-      else map.set(t.measurementId, [t]);
-    }
-    return map;
-  }, [todos]);
-
   const dashboardData: MarkerHistory[] = useMemo(() => {
     if (bloodMarkers.length === 0) return [];
 
@@ -483,19 +490,7 @@ const App: React.FC = () => {
     return out;
   }, [bloodMarkers, measurementsByMarkerId, notesByMarkerId]);
 
-  const activeTodosWithContext = useMemo(() => {
-    return todos
-      .filter(t => !t.done)
-      .map(t => {
-        const measurement = measurements.find(m => m.id === t.measurementId);
-        const marker = measurement ? bloodMarkers.find(b => b.id === measurement.markerId) : null;
-        return {
-          ...t,
-          markerName: marker?.name,
-          markerId: marker?.id
-        };
-      });
-  }, [todos, measurements, bloodMarkers]);
+  const activeTodos = useMemo(() => todos.filter(t => !t.done), [todos]);
 
   const stats = useMemo(() => {
     const optimizedEvents: OptimizationEvent[] = [];
@@ -536,13 +531,20 @@ const App: React.FC = () => {
     optimizedEvents.sort((a, b) => ts(b.goodDate) - ts(a.goodDate));
     attentionMarkers.sort((a, b) => a.name.localeCompare(b.name));
 
+    // Calculate Coverage
+    // How many attention markers have at least one active todo linked to them?
+    const coveredAttentionCount = attentionMarkers.filter(marker => 
+        activeTodos.some(todo => todo.markerIds.includes(marker.id))
+    ).length;
+
     return { 
       optimizedEvents, 
       attentionMarkers, 
       normalCount, 
       totalCount: dashboardData.length,
+      coveredAttentionCount
     };
-  }, [dashboardData]);
+  }, [dashboardData, activeTodos]);
 
   const selectedMarkerData = useMemo(
     () => dashboardData.find((d) => d.id === selectedMarkerId),
@@ -857,15 +859,11 @@ const App: React.FC = () => {
   );
 
   const handleAddTodo = useCallback(
-    async (measurementId: string, task: string) => {
+    async (markerId: string, task: string) => {
       if (!session?.user) return;
 
       if (!dbCapabilities.todos) {
-        showToast({
-          type: 'error',
-          title: 'Uppgifter är inte aktiverade',
-          message: 'Tabellen/policys för measurement_todos saknas i databasen.',
-        });
+        showToast({ type: 'error', title: 'Uppgifter är inte aktiverade', message: 'Tabellen saknas.' });
         return;
       }
 
@@ -874,7 +872,11 @@ const App: React.FC = () => {
 
       try {
         const { error } = await supabase.from('measurement_todos').insert([
-          { user_id: session.user.id, measurement_id: measurementId, task: clean },
+          { 
+            user_id: session.user.id, 
+            marker_ids: [markerId], // New schema: array of markers
+            task: clean 
+          },
         ]);
         if (error) throw error;
 
@@ -882,25 +884,35 @@ const App: React.FC = () => {
         showToast({ type: 'success', title: 'Sparat', message: 'Uppgiften är sparad.' });
       } catch (err) {
         console.error('Error adding todo:', err);
-        showToast({ type: 'error', title: 'Kunde inte spara uppgiften', message: humanizeSupabaseError(err) });
-        throw err;
+        showToast({ type: 'error', title: 'Kunde inte spara', message: humanizeSupabaseError(err) });
       }
     },
     [session?.user, fetchData, showToast, dbCapabilities.todos],
   );
 
+  const handleUpdateTodoTags = useCallback(
+    async (todoId: string, markerIds: string[]) => {
+      if (!session?.user) return;
+      try {
+         const { error } = await supabase
+           .from('measurement_todos')
+           .update({ marker_ids: markerIds })
+           .eq('id', todoId)
+           .eq('user_id', session.user.id);
+         
+         if(error) throw error;
+         await fetchData();
+      } catch (err) {
+         console.error(err);
+         showToast({ type:'error', title:'Kunde inte uppdatera taggar', message: humanizeSupabaseError(err) });
+      }
+    },
+    [session?.user, fetchData, showToast]
+  );
+
   const handleToggleTodo = useCallback(
     async (todoId: string, done: boolean) => {
       if (!session?.user) return;
-
-      if (!dbCapabilities.todos) {
-        showToast({
-          type: 'error',
-          title: 'Uppgifter är inte aktiverade',
-          message: 'Tabellen/policys för measurement_todos saknas i databasen.',
-        });
-        return;
-      }
 
       try {
         const { error } = await supabase
@@ -913,33 +925,19 @@ const App: React.FC = () => {
         await fetchData();
       } catch (err) {
         console.error('Error toggling todo:', err);
-        showToast({ type: 'error', title: 'Kunde inte uppdatera uppgiften', message: humanizeSupabaseError(err) });
-        throw err;
+        showToast({ type: 'error', title: 'Kunde inte uppdatera', message: humanizeSupabaseError(err) });
       }
     },
-    [session?.user, fetchData, showToast, dbCapabilities.todos],
+    [session?.user, fetchData, showToast],
   );
 
-  const handleUpdateTodo = useCallback(
-    async (todoId: string, task: string) => {
+  const handleUpdateTodoTask = useCallback(
+    async (todoId: string, task: string, dueDate: string | null) => {
       if (!session?.user) return;
-
-      if (!dbCapabilities.todos) {
-        showToast({
-          type: 'error',
-          title: 'Uppgifter är inte aktiverade',
-          message: 'Tabellen/policys för measurement_todos saknas i databasen.',
-        });
-        return;
-      }
-
-      const clean = task.trim();
-      if (!clean) return;
-
       try {
         const { error } = await supabase
           .from('measurement_todos')
-          .update({ task: clean })
+          .update({ task: task.trim(), due_date: dueDate })
           .eq('id', todoId)
           .eq('user_id', session.user.id);
 
@@ -948,26 +946,15 @@ const App: React.FC = () => {
         showToast({ type: 'success', title: 'Uppdaterat', message: 'Uppgiften är uppdaterad.' });
       } catch (err) {
         console.error('Error updating todo:', err);
-        showToast({ type: 'error', title: 'Kunde inte uppdatera uppgiften', message: humanizeSupabaseError(err) });
-        throw err;
+        showToast({ type: 'error', title: 'Kunde inte uppdatera', message: humanizeSupabaseError(err) });
       }
     },
-    [session?.user, fetchData, showToast, dbCapabilities.todos],
+    [session?.user, fetchData, showToast],
   );
 
   const handleDeleteTodo = useCallback(
     async (todoId: string) => {
       if (!session?.user) return;
-
-      if (!dbCapabilities.todos) {
-        showToast({
-          type: 'error',
-          title: 'Uppgifter är inte aktiverade',
-          message: 'Tabellen/policys för measurement_todos saknas i databasen.',
-        });
-        return;
-      }
-
       try {
         const { error } = await supabase
           .from('measurement_todos')
@@ -980,11 +967,10 @@ const App: React.FC = () => {
         showToast({ type: 'success', title: 'Borttaget', message: 'Uppgiften är borttagen.' });
       } catch (err) {
         console.error('Error deleting todo:', err);
-        showToast({ type: 'error', title: 'Kunde inte ta bort uppgiften', message: humanizeSupabaseError(err) });
-        throw err;
+        showToast({ type: 'error', title: 'Kunde inte ta bort', message: humanizeSupabaseError(err) });
       }
     },
-    [session?.user, fetchData, showToast, dbCapabilities.todos],
+    [session?.user, fetchData, showToast],
   );
 
   const handleSignOut = useCallback(async () => {
@@ -1017,9 +1003,9 @@ const App: React.FC = () => {
   }
 
   if (!session) {
-    return showAuth ? (
-      <Auth />
-    ) : (
+    if (showAuth) return <Auth />;
+    
+    return (
       <LandingPage
         onStart={() => setShowAuth(true)}
         onLogin={() => setShowAuth(true)}
@@ -1045,8 +1031,7 @@ const App: React.FC = () => {
       );
     }
 
-    const latestId = selectedMarkerData.latestMeasurement?.id ?? null;
-    const todosForLatest = latestId ? (todosByMeasurementId.get(latestId) ?? []) : [];
+    const todosForMarker = todos.filter(t => t.markerIds.includes(selectedMarkerId));
 
     return (
       <DetailView
@@ -1060,13 +1045,18 @@ const App: React.FC = () => {
         onUpdateNote={handleUpdateMarkerNote}
         onDeleteNote={handleDeleteMarkerNote}
         onUpdateMeasurementNote={handleUpdateMeasurementNote}
-        todos={todosForLatest}
+        todos={todosForMarker}
         onAddTodo={handleAddTodo}
         onToggleTodo={handleToggleTodo}
-        onUpdateTodo={handleUpdateTodo}
+        onUpdateTodo={handleUpdateTodoTask} // Maps to the new function that handles task AND date
         onDeleteTodo={handleDeleteTodo}
         onDeleteMeasurement={handleDeleteMeasurement}
         onUpdateMeasurement={handleUpdateMeasurement}
+        
+        // Pass extra data for tagging
+        // @ts-ignore - Adding extra props to DetailView dynamically (will fix in DetailView next)
+        allMarkers={bloodMarkers}
+        onUpdateTags={handleUpdateTodoTags}
       />
     );
   }
@@ -1103,6 +1093,17 @@ const App: React.FC = () => {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               <span className="text-xs text-slate-700 font-semibold truncate max-w-[260px]">{session.user.email}</span>
             </div>
+
+            {/* NEW: Timeline Button */}
+            <button
+              onClick={() => setIsTimelineOpen(true)}
+              className="w-10 h-10 rounded-full bg-white/70 hover:bg-white flex items-center justify-center ring-1 ring-slate-900/10 transition-colors"
+              title="Händelselogg"
+            >
+               <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+               </svg>
+            </button>
 
             <button
               onClick={handleRefresh}
@@ -1165,6 +1166,7 @@ const App: React.FC = () => {
             normalCount={stats.normalCount}
             attentionMarkers={stats.attentionMarkers}
             optimizedCount={stats.optimizedEvents.length}
+            coveredAttentionCount={stats.coveredAttentionCount}
             onOptimizedClick={handleOpenOptimizedEvents}
             onAttentionClick={handleAttentionClick}
             newOptimizedCount={newOptimizedCount}
@@ -1172,11 +1174,13 @@ const App: React.FC = () => {
         )}
         
         {/* NEW: ACTIVE ACTION LIST (TODOS) */}
-        {!loadingData && activeTodosWithContext.length > 0 && (
+        {!loadingData && activeTodos.length > 0 && (
           <ActionList 
-            todos={activeTodosWithContext}
+            todos={activeTodos}
+            availableMarkers={bloodMarkers}
             onToggle={handleToggleTodo}
-            onSelectMarker={setSelectedMarkerId}
+            onDelete={handleDeleteTodo}
+            onTagClick={setSelectedMarkerId}
           />
         )}
 
@@ -1314,7 +1318,6 @@ const App: React.FC = () => {
                 </div>
               </div>
             ) : !hasFilteredResults ? (
-               // UPDATED NO RESULTS LOGIC: Handle "All good" state gracefully
                statusFilter === 'attention' && !query ? (
                   <div className="text-center py-16 px-4 animate-in fade-in slide-in-from-bottom-4">
                      <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1344,12 +1347,10 @@ const App: React.FC = () => {
             ) : (
               <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500">
                 {statusFilter === 'all' ? (
-                  // GROUPED VIEW (ACCORDIONS)
                   groupedData.map(({ category, markers }) => (
                     <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} />
                   ))
                 ) : (
-                  // FLAT VIEW (SIMPLE LIST) for Attention / Normal filters
                   <div className="flex flex-col gap-3 px-1">
                     {filteredDashboardData.map(marker => (
                        <BloodMarkerCard key={marker.id} data={marker} onClick={() => setSelectedMarkerId(marker.id)} />
@@ -1424,6 +1425,15 @@ const App: React.FC = () => {
         isOpen={isOptimizedModalOpen}
         onClose={() => setIsOptimizedModalOpen(false)}
         events={stats.optimizedEvents}
+      />
+
+      <GlobalTimelineDrawer 
+        isOpen={isTimelineOpen}
+        onClose={() => setIsTimelineOpen(false)}
+        measurements={measurements}
+        notes={markerNotes}
+        markers={bloodMarkers}
+        onSelectMarker={setSelectedMarkerId}
       />
     
       {toast && <Toast type={toast.type} title={toast.title} message={toast.message} onClose={() => setToast(null)} />}

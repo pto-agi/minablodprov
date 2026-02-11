@@ -1,12 +1,13 @@
-import React, { useMemo } from "react";
+
+import React, { useMemo, useState } from "react";
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
 
-type LandingPageProps = {
-  onStart?: () => void; // t.ex. öppna Auth/signup
-  onLogin?: () => void; // t.ex. öppna Auth/login
-};
+interface LandingPageProps {
+  onStart: () => void;
+  onLogin: () => void;
+}
 
 const Check = (props: React.SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
@@ -32,23 +33,6 @@ const Arrow = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-const BloodworkLogo: React.FC = () => (
-  <div className="flex items-center gap-3 min-w-0">
-    <div className="relative w-10 h-10 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 flex items-center justify-center text-white font-extrabold shadow-sm">
-      <span className="font-display tracking-tight">BW</span>
-      <div className="absolute inset-0 rounded-2xl ring-1 ring-white/15" />
-    </div>
-    <div className="min-w-0">
-      <div className="text-sm font-bold text-slate-900 tracking-tight leading-tight">
-        bloodwork<span className="text-slate-500">.se</span>
-      </div>
-      <div className="text-[11px] text-slate-500 font-medium leading-tight">
-        Biomarker dashboard • <span className="font-mono">pro</span>
-      </div>
-    </div>
-  </div>
-);
-
 const FeatureIcon: React.FC<{ kind: "spark" | "shield" | "check" }> = ({ kind }) => {
   const Icon = kind === "spark" ? Spark : kind === "shield" ? Shield : Check;
   return (
@@ -59,7 +43,6 @@ const FeatureIcon: React.FC<{ kind: "spark" | "shield" | "check" }> = ({ kind })
 };
 
 const MockDashboard: React.FC = () => {
-  // En “screenshot-känsla” utan riktiga bilder (snabbt + stilrent)
   return (
     <div className="relative">
       <div className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-gradient-to-br from-emerald-200/40 to-cyan-200/20 blur-2xl" />
@@ -160,7 +143,7 @@ const PricingCard: React.FC<{
 }> = ({ title, price, desc, bullets, highlight, cta, onClick }) => (
   <div
     className={cx(
-      "rounded-[2rem] p-6 ring-1 shadow-sm",
+      "rounded-[2rem] p-6 ring-1 shadow-sm transition-all hover:-translate-y-1",
       highlight
         ? "bg-slate-900 text-white ring-slate-900 shadow-slate-900/15"
         : "bg-white/80 backdrop-blur-sm text-slate-900 ring-slate-900/5"
@@ -215,6 +198,8 @@ const PricingCard: React.FC<{
 );
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   const features = useMemo(
     () => [
       {
@@ -274,46 +259,60 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 relative">
-      {/* Decorative background glows */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-56 right-[-12rem] h-[34rem] w-[34rem] rounded-full bg-gradient-to-br from-emerald-200/55 to-cyan-200/35 blur-3xl" />
-        <div className="absolute -bottom-56 left-[-12rem] h-[34rem] w-[34rem] rounded-full bg-gradient-to-tr from-indigo-200/45 to-violet-200/35 blur-3xl" />
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 h-48 w-[56rem] max-w-[92vw] rounded-full bg-gradient-to-r from-transparent via-slate-200/25 to-transparent blur-2xl" />
-      </div>
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-emerald-100 selection:text-emerald-900">
+      {/* HEADER */}
+      <header className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/50">
+          <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
+                {/* Logo */}
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center font-display font-bold shadow-sm">
+                      BW
+                  </div>
+                  <span className="font-display font-bold text-slate-900 tracking-tight">bloodwork.se</span>
+                </div>
 
-      {/* Header */}
-      <header className="border-b border-slate-200/70 sticky top-0 z-40 bg-white/70 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between gap-4">
-          <BloodworkLogo />
+                {/* Desktop Nav */}
+                <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
+                  <a href="#hur" className="hover:text-slate-900 transition-colors">Hur det funkar</a>
+                  <a href="#funktioner" className="hover:text-slate-900 transition-colors">Funktioner</a>
+                  <a href="#pris" className="hover:text-slate-900 transition-colors">Pris</a>
+                  <a href="#faq" className="hover:text-slate-900 transition-colors">FAQ</a>
+                </nav>
 
-          <nav className="hidden md:flex items-center gap-6 text-sm font-semibold text-slate-600">
-            <a className="hover:text-slate-900" href="#funktioner">Funktioner</a>
-            <a className="hover:text-slate-900" href="#hur">Hur det funkar</a>
-            <a className="hover:text-slate-900" href="#pris">Pris</a>
-            <a className="hover:text-slate-900" href="#faq">FAQ</a>
-          </nav>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onLogin}
-              className="rounded-full px-4 py-2 text-sm font-semibold bg-white/70 ring-1 ring-slate-900/10 hover:bg-white"
-            >
-              Logga in
-            </button>
-            <button
-              onClick={onStart}
-              className="rounded-full px-4 py-2 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10"
-            >
-              Kom igång
-            </button>
+                {/* Actions */}
+                <div className="hidden md:flex items-center gap-3">
+                  <button onClick={onLogin} className="text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors">Logga in</button>
+                  <button onClick={onStart} className="px-4 py-2 rounded-full bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm shadow-slate-900/10">
+                      Skapa konto
+                  </button>
+                </div>
+                
+                {/* Mobile Toggle */}
+                <button className="md:hidden p-2 text-slate-600" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isMobileMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} /></svg>
+                </button>
           </div>
-        </div>
+          
+          {/* Mobile Menu */}
+          {isMobileMenuOpen && (
+              <div className="md:hidden bg-white border-b border-slate-200 p-5 space-y-4">
+                    <nav className="flex flex-col gap-4 text-sm font-medium text-slate-600">
+                      <a href="#hur" onClick={() => setIsMobileMenuOpen(false)}>Hur det funkar</a>
+                      <a href="#funktioner" onClick={() => setIsMobileMenuOpen(false)}>Funktioner</a>
+                      <a href="#pris" onClick={() => setIsMobileMenuOpen(false)}>Pris</a>
+                      <a href="#faq" onClick={() => setIsMobileMenuOpen(false)}>FAQ</a>
+                    </nav>
+                    <div className="pt-4 border-t border-slate-100 flex flex-col gap-3">
+                      <button onClick={onLogin} className="w-full py-2.5 text-center font-bold text-slate-700 bg-slate-50 rounded-xl">Logga in</button>
+                      <button onClick={onStart} className="w-full py-2.5 text-center font-bold text-white bg-slate-900 rounded-xl">Skapa konto</button>
+                    </div>
+              </div>
+          )}
       </header>
 
-      {/* Hero */}
-      <main className="relative">
-        <section className="max-w-6xl mx-auto px-5 pt-12 pb-10">
+      <main className="pt-20">
+        {/* Hero */}
+        <section className="max-w-6xl mx-auto px-5 pt-12 pb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="grid lg:grid-cols-2 gap-10 items-center">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-slate-900/10 px-3 py-1.5 text-xs font-semibold text-slate-700">
@@ -429,7 +428,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
         </section>
 
         {/* How it works */}
-        <section id="hur" className="max-w-6xl mx-auto px-5 pb-14">
+        <section id="hur" className="max-w-6xl mx-auto px-5 pb-14 scroll-mt-20">
           <div className="rounded-[2.5rem] bg-white/70 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-8 md:p-10">
             <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
               <div>
@@ -478,7 +477,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
         </section>
 
         {/* Features */}
-        <section id="funktioner" className="max-w-6xl mx-auto px-5 pb-14">
+        <section id="funktioner" className="max-w-6xl mx-auto px-5 pb-14 scroll-mt-20">
           <div className="flex items-end justify-between gap-4">
             <div>
               <h2 className="text-2xl sm:text-3xl font-display font-extrabold tracking-tight text-slate-900">
@@ -502,7 +501,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
         </section>
 
         {/* Pricing */}
-        <section id="pris" className="max-w-6xl mx-auto px-5 pb-14">
+        <section id="pris" className="max-w-6xl mx-auto px-5 pb-14 scroll-mt-20">
           <div className="rounded-[2.5rem] bg-gradient-to-br from-slate-900 to-slate-800 text-white ring-1 ring-slate-900 shadow-sm p-8 md:p-10">
             <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
               <div>
@@ -551,7 +550,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="max-w-6xl mx-auto px-5 pb-14">
+        <section id="faq" className="max-w-6xl mx-auto px-5 pb-14 scroll-mt-20">
           <h2 className="text-2xl sm:text-3xl font-display font-extrabold tracking-tight text-slate-900">
             Vanliga frågor
           </h2>
@@ -610,29 +609,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             </div>
           </div>
         </section>
-
-        {/* Footer */}
-        <footer className="border-t border-slate-200/70 bg-white/50 backdrop-blur-sm">
-          <div className="max-w-6xl mx-auto px-5 py-10">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
-              <BloodworkLogo />
-              <div className="flex flex-wrap gap-4 text-sm font-semibold text-slate-600">
-                <a className="hover:text-slate-900" href="#funktioner">Funktioner</a>
-                <a className="hover:text-slate-900" href="#hur">Hur det funkar</a>
-                <a className="hover:text-slate-900" href="#pris">Pris</a>
-                <a className="hover:text-slate-900" href="#faq">FAQ</a>
-              </div>
-            </div>
-            <div className="mt-6 text-xs text-slate-500 max-w-3xl">
-              Disclaimer: Bloodwork.se är ett verktyg för att organisera och följa labbvärden och ersätter inte professionell medicinsk rådgivning,
-              diagnos eller behandling. Vid frågor om hälsa – kontakta legitimerad vårdpersonal.
-            </div>
-            <div className="mt-4 text-[11px] text-slate-400">
-              © {new Date().getFullYear()} bloodwork.se
-            </div>
-          </div>
-        </footer>
       </main>
+      
+      {/* FOOTER */}
+      <footer className="bg-white border-t border-slate-200 py-12">
+          <div className="max-w-6xl mx-auto px-5 flex flex-col md:flex-row justify-between items-center gap-6">
+              <div className="text-sm text-slate-500">© 2026 Bloodwork.se. Alla rättigheter förbehållna.</div>
+              <div className="flex gap-6 text-sm font-medium text-slate-600">
+                  <a href="#" className="hover:text-slate-900">Villkor</a>
+                  <a href="#" className="hover:text-slate-900">Integritet</a>
+                  <a href="#" className="hover:text-slate-900">Kontakt</a>
+              </div>
+          </div>
+      </footer>
     </div>
   );
 };
