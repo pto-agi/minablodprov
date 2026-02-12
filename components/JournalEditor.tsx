@@ -175,6 +175,7 @@ const JournalEditor: React.FC<Props> = ({
   const [saveSuccess, setSaveSuccess] = useState(false); 
   const [isDeleting, setIsDeleting] = useState(false);
   const [tempId, setTempId] = useState<string | null>(plan?.id || null);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false); // New for mobile
   
   // Search State
   const [markerSearch, setMarkerSearch] = useState('');
@@ -394,12 +395,97 @@ const JournalEditor: React.FC<Props> = ({
     onClose();
   }, [isDirty, onClose]);
 
+  // Sidebar content separated to be reusable in Desktop Sidebar and Mobile Drawer
+  const SidebarContent = () => (
+     <div className="p-5 flex flex-col h-full overflow-y-auto">
+        
+        {/* SECTION: GOALS */}
+        <div className="mb-8">
+           <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Målsättningar</h4>
+           
+           {goals.map((g, i) => {
+              const m = markerById.get(g.markerId);
+              return m ? <SidebarGoalItem key={i} goal={g} markerName={m.name} unit={m.unit} onDelete={() => removeGoal(i)} /> : null;
+           })}
+
+           {isAddingGoal ? (
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm animate-in fade-in">
+                 <select value={newGoalMarkerId} onChange={e => setNewGoalMarkerId(e.target.value)} className="w-full text-xs mb-2 p-2 rounded border border-slate-200 bg-slate-50">
+                    <option value="">Välj markör...</option>
+                    {allMarkers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                 </select>
+                 
+                 <select value={newGoalDirection} onChange={e => setNewGoalDirection(e.target.value as any)} className="w-full text-xs mb-2 p-2 rounded border border-slate-200 bg-slate-50">
+                    <option value="higher">Högre än (&gt;)</option>
+                    <option value="lower">Lägre än (&lt;)</option>
+                    <option value="range">Intervall (mellan)</option>
+                 </select>
+
+                 <div className="flex items-center gap-2 mb-2">
+                    {newGoalDirection === 'range' ? (
+                        <>
+                          <input type="number" value={newGoalValue} onChange={e => setNewGoalValue(e.target.value)} placeholder="Min" className="w-16 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
+                          <span className="text-[10px] font-bold text-slate-400">OCH</span>
+                          <input type="number" value={newGoalValueUpper} onChange={e => setNewGoalValueUpper(e.target.value)} placeholder="Max" className="w-16 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
+                        </>
+                    ) : (
+                        <input type="number" value={newGoalValue} onChange={e => setNewGoalValue(e.target.value)} placeholder="Värde" className="flex-1 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
+                    )}
+                 </div>
+
+                 <div className="flex justify-end gap-2">
+                    <button onClick={() => setIsAddingGoal(false)} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Avbryt</button>
+                    <button onClick={handleAddGoal} disabled={!newGoalMarkerId || !newGoalValue || (newGoalDirection === 'range' && !newGoalValueUpper)} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm disabled:opacity-50">Spara</button>
+                 </div>
+              </div>
+           ) : (
+              <button onClick={() => setIsAddingGoal(true)} className="flex items-center gap-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors w-full border border-dashed border-indigo-200 hover:border-indigo-300">
+                 <span>+</span> Lägg till mål
+              </button>
+           )}
+        </div>
+
+        {/* SECTION: SEARCH */}
+        <div>
+           <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Alla markörer</h4>
+           <div className="relative">
+             <input 
+                type="text" 
+                placeholder="Sök markör..." 
+                value={markerSearch}
+                onChange={e => setMarkerSearch(e.target.value)}
+                className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm mb-2"
+             />
+             <div className="absolute right-3 top-2.5 text-slate-400 pointer-events-none">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+             </div>
+           </div>
+
+           {searchResults.length > 0 && (
+              <div className="space-y-1 bg-white border border-slate-100 rounded-xl p-1 shadow-sm">
+                 {searchResults.map(m => (
+                    <button 
+                       key={m.id}
+                       onClick={() => { toggleMarker(m.id); setMarkerSearch(''); }}
+                       className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors flex justify-between group"
+                    >
+                       <span>{m.name}</span>
+                       <span className="text-slate-300 group-hover:text-indigo-500">+</span>
+                    </button>
+                 ))}
+              </div>
+           )}
+        </div>
+
+     </div>
+  );
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-100/50 flex flex-col animate-in fade-in duration-200">
       
       {/* 1. HEADER */}
-      <header className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-4 sm:px-6 shadow-sm z-20">
-        <div className="flex items-center gap-4">
+      <header className="h-14 border-b border-slate-200 bg-white flex items-center justify-between px-3 sm:px-6 shadow-sm z-20">
+        <div className="flex items-center gap-2 sm:gap-4">
           <button onClick={handleClose} className="text-slate-500 hover:text-slate-900 flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
             <span className="text-sm font-semibold hidden sm:inline">Tillbaka</span>
@@ -412,12 +498,21 @@ const JournalEditor: React.FC<Props> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {tempId && (
-            <button onClick={handleDelete} disabled={isDeleting} className="p-2 text-slate-400 hover:text-rose-600 rounded-full transition-colors">
+            <button onClick={handleDelete} disabled={isDeleting} className="p-2 text-slate-400 hover:text-rose-600 rounded-full transition-colors hidden sm:block">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
             </button>
           )}
+          
+          {/* Mobile Sidebar Toggle */}
+          <button 
+            onClick={() => setIsMobileSidebarOpen(true)}
+            className="lg:hidden px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg"
+          >
+             Mål & Inställningar
+          </button>
+
           <button onClick={() => handleSave()} disabled={isSaving} className={cx("px-4 py-1.5 text-xs font-bold rounded-lg transition-all shadow-sm", saveSuccess ? "bg-emerald-500 text-white" : "bg-slate-900 text-white hover:bg-slate-800")}>
             {saveSuccess ? 'Sparat!' : 'Spara'}
           </button>
@@ -425,14 +520,14 @@ const JournalEditor: React.FC<Props> = ({
       </header>
 
       {/* 2. LAYOUT: EDITOR (Left) + SIDEBAR (Right) */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         
         {/* CENTER: EDITOR AREA */}
-        <main className="flex-1 overflow-y-auto bg-slate-50/50">
-          <div className="max-w-3xl mx-auto px-4 sm:px-8 py-8 pb-32">
+        <main className="flex-1 overflow-y-auto bg-slate-50/50 w-full">
+          <div className="max-w-3xl mx-auto px-3 sm:px-8 py-4 sm:py-8 pb-32">
             
             {/* PAPER CARD */}
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 sm:p-12 mb-8 min-h-[60vh]">
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-12 mb-8 min-h-[60vh]">
                
                {/* 1. TITLE */}
                <input 
@@ -440,47 +535,82 @@ const JournalEditor: React.FC<Props> = ({
                  placeholder="Namnge din plan..." 
                  value={title} 
                  onChange={e => { setTitle(e.target.value); markDirty(); }}
-                 className="w-full text-4xl font-display font-bold text-slate-900 outline-none placeholder:text-slate-300 mb-6"
+                 className="w-full text-2xl sm:text-4xl font-display font-bold text-slate-900 outline-none placeholder:text-slate-300 mb-6"
                  autoFocus={!plan}
                />
 
-               {/* 2. META ROW: Dates + Tags */}
-               <div className="flex flex-wrap items-center gap-y-3 gap-x-4 mb-8 pb-4 border-b border-slate-100 text-sm">
+               {/* 2. MARKER & DATE SELECTOR (Revised) */}
+               <div className="flex flex-col gap-4 mb-8 pb-6 border-b border-slate-100">
+                  
                   {/* Dates */}
-                  <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-2 py-1 border border-slate-100">
-                    <span className="text-slate-400 font-medium text-xs uppercase tracking-wide">Period:</span>
-                    <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); markDirty(); }} className="bg-transparent font-semibold text-slate-700 outline-none w-24 text-xs" />
-                    <span className="text-slate-300">→</span>
-                    <input type="date" value={targetDate} onChange={e => { setTargetDate(e.target.value); markDirty(); }} className="bg-transparent font-semibold text-slate-700 outline-none w-24 text-xs placeholder:text-slate-300" />
+                  <div className="flex items-center gap-2 text-sm self-start">
+                    <span className="text-slate-400 font-bold text-xs uppercase tracking-wide">Period:</span>
+                    <div className="flex items-center bg-slate-50 rounded-lg px-2 py-1 border border-slate-100">
+                       <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); markDirty(); }} className="bg-transparent font-semibold text-slate-700 outline-none w-24 text-xs" />
+                       <span className="text-slate-300 mx-1">→</span>
+                       <input type="date" value={targetDate} onChange={e => { setTargetDate(e.target.value); markDirty(); }} className="bg-transparent font-semibold text-slate-700 outline-none w-24 text-xs placeholder:text-slate-300" />
+                    </div>
                   </div>
 
-                  <div className="w-px h-6 bg-slate-200 mx-2 hidden sm:block" />
+                  {/* SMART MARKER CLOUD */}
+                  <div>
+                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Omfattning & Fokus</h4>
+                      
+                      <div className="space-y-3">
+                         {/* A: SELECTED MARKERS (IN PLAN) */}
+                         {linkedMarkersList.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                               {linkedMarkersList.map(m => {
+                                  const hasGoal = goals.some(g => g.markerId === m.id);
+                                  return (
+                                     <div key={m.id} className="flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs font-bold uppercase tracking-wide">
+                                        {hasGoal && <span className="text-[10px]">🎯</span>}
+                                        {m.name}
+                                        <button 
+                                          onClick={() => toggleMarker(m.id)}
+                                          className="ml-1 p-0.5 rounded hover:bg-indigo-200 text-indigo-400 hover:text-indigo-800 transition-colors"
+                                        >
+                                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                     </div>
+                                  );
+                               })}
+                            </div>
+                         )}
 
-                  {/* Tag Cloud (Linked Markers) */}
-                  <div className="flex flex-wrap items-center gap-2">
-                     {linkedMarkersList.length === 0 && (
-                        <span className="text-slate-300 text-xs italic">Inga markörer taggade (använd panelen till höger)</span>
-                     )}
-                     {linkedMarkersList.map(m => {
-                        const hasGoal = goals.some(g => g.markerId === m.id);
-                        return (
-                           <div key={m.id} className="group relative flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-[11px] font-bold uppercase tracking-wide cursor-default transition-all hover:bg-indigo-100 hover:border-indigo-200">
-                              {hasGoal && <span className="text-[10px]">🎯</span>}
-                              {m.name}
-                              <button 
-                                onClick={() => toggleMarker(m.id)}
-                                className="ml-1 p-0.5 rounded-full hover:bg-indigo-200 text-indigo-400 hover:text-indigo-800 transition-colors"
-                              >
-                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                              </button>
-                           </div>
-                        );
-                     })}
+                         {/* B: UNHANDLED DEVIATIONS (SUGGESTIONS) */}
+                         {unhandledMarkers.length > 0 && (
+                            <div className="flex flex-col gap-1.5">
+                               <div className="text-[10px] text-rose-400 font-semibold uppercase tracking-tight flex items-center gap-1">
+                                  <span>⚠️ Avvikelser som saknar plan:</span>
+                               </div>
+                               <div className="flex flex-wrap gap-2">
+                                  {unhandledMarkers.map(m => {
+                                     const isHigh = m.status === 'high';
+                                     return (
+                                        <button 
+                                           key={m.id} 
+                                           onClick={() => toggleMarker(m.id)}
+                                           className={cx(
+                                              "flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-dashed text-xs font-semibold uppercase tracking-wide transition-all",
+                                              isHigh 
+                                                 ? "bg-rose-50/50 border-rose-200 text-rose-600 hover:bg-rose-100 hover:border-rose-300" 
+                                                 : "bg-amber-50/50 border-amber-200 text-amber-600 hover:bg-amber-100 hover:border-amber-300"
+                                           )}
+                                        >
+                                           <span>+ {m.name}</span>
+                                        </button>
+                                     );
+                                  })}
+                               </div>
+                            </div>
+                         )}
+                      </div>
                   </div>
                </div>
 
                {/* 3. TOOLBAR */}
-               <div className="sticky top-0 z-10 bg-white py-2 mb-2 flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity">
+               <div className="sticky top-0 z-10 bg-white py-2 mb-2 flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity">
                   <ToolbarBtn onClick={() => execCmd('bold')} icon="B" label="Fet" />
                   <ToolbarBtn onClick={() => execCmd('italic')} icon="I" label="Kursiv" />
                   <ToolbarBtn onClick={() => execCmd('insertUnorderedList')} icon="•" label="Lista" />
@@ -516,115 +646,29 @@ const JournalEditor: React.FC<Props> = ({
           </div>
         </main>
 
-        {/* RIGHT: SETTINGS SIDEBAR */}
-        <aside className="w-80 bg-slate-50 border-l border-slate-200 flex flex-col z-10">
-           <div className="p-5 flex flex-col h-full overflow-y-auto">
-              
-              {/* SECTION: GOALS */}
-              <div className="mb-8">
-                 <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Målsättningar</h4>
-                 
-                 {goals.map((g, i) => {
-                    const m = markerById.get(g.markerId);
-                    return m ? <SidebarGoalItem key={i} goal={g} markerName={m.name} unit={m.unit} onDelete={() => removeGoal(i)} /> : null;
-                 })}
-
-                 {isAddingGoal ? (
-                    <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm animate-in fade-in">
-                       <select value={newGoalMarkerId} onChange={e => setNewGoalMarkerId(e.target.value)} className="w-full text-xs mb-2 p-2 rounded border border-slate-200 bg-slate-50">
-                          <option value="">Välj markör...</option>
-                          {allMarkers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                       </select>
-                       
-                       <select value={newGoalDirection} onChange={e => setNewGoalDirection(e.target.value as any)} className="w-full text-xs mb-2 p-2 rounded border border-slate-200 bg-slate-50">
-                          <option value="higher">Högre än (&gt;)</option>
-                          <option value="lower">Lägre än (&lt;)</option>
-                          <option value="range">Intervall (mellan)</option>
-                       </select>
-
-                       <div className="flex items-center gap-2 mb-2">
-                          {newGoalDirection === 'range' ? (
-                              <>
-                                <input type="number" value={newGoalValue} onChange={e => setNewGoalValue(e.target.value)} placeholder="Min" className="w-16 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
-                                <span className="text-[10px] font-bold text-slate-400">OCH</span>
-                                <input type="number" value={newGoalValueUpper} onChange={e => setNewGoalValueUpper(e.target.value)} placeholder="Max" className="w-16 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
-                              </>
-                          ) : (
-                              <input type="number" value={newGoalValue} onChange={e => setNewGoalValue(e.target.value)} placeholder="Värde" className="flex-1 text-xs p-2 rounded border border-slate-200 bg-slate-50" />
-                          )}
-                       </div>
-
-                       <div className="flex justify-end gap-2">
-                          <button onClick={() => setIsAddingGoal(false)} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Avbryt</button>
-                          <button onClick={handleAddGoal} disabled={!newGoalMarkerId || !newGoalValue || (newGoalDirection === 'range' && !newGoalValueUpper)} className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm disabled:opacity-50">Spara</button>
-                       </div>
-                    </div>
-                 ) : (
-                    <button onClick={() => setIsAddingGoal(true)} className="flex items-center gap-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors w-full border border-dashed border-indigo-200 hover:border-indigo-300">
-                       <span>+</span> Lägg till mål
-                    </button>
-                 )}
-              </div>
-
-              {/* SECTION: UNHANDLED DEVIATIONS (INBOX) */}
-              <div className="mb-8">
-                 <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Att hantera</h4>
-                    {unhandledMarkers.length > 0 && <span className="bg-rose-100 text-rose-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unhandledMarkers.length}</span>}
-                 </div>
-
-                 {unhandledMarkers.length === 0 ? (
-                    <div className="text-center p-6 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
-                       <span className="text-2xl block mb-2">🎉</span>
-                       <span className="text-xs font-medium text-slate-500">Inga ohanterade avvikelser</span>
-                    </div>
-                 ) : (
-                    <div className="space-y-3">
-                       {unhandledMarkers.map(m => (
-                          <SidebarDeviationCard 
-                             key={m.id}
-                             marker={m}
-                             onAdd={() => toggleMarker(m.id)}
-                          />
-                       ))}
-                    </div>
-                 )}
-              </div>
-
-              {/* SECTION: SEARCH */}
-              <div>
-                 <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Lägg till övriga</h4>
-                 <div className="relative">
-                   <input 
-                      type="text" 
-                      placeholder="Sök markör..." 
-                      value={markerSearch}
-                      onChange={e => setMarkerSearch(e.target.value)}
-                      className="w-full text-xs bg-white border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm mb-2"
-                   />
-                   <div className="absolute right-3 top-2.5 text-slate-400 pointer-events-none">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                   </div>
-                 </div>
-
-                 {searchResults.length > 0 && (
-                    <div className="space-y-1 bg-white border border-slate-100 rounded-xl p-1 shadow-sm">
-                       {searchResults.map(m => (
-                          <button 
-                             key={m.id}
-                             onClick={() => { toggleMarker(m.id); setMarkerSearch(''); }}
-                             className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 rounded-lg transition-colors flex justify-between group"
-                          >
-                             <span>{m.name}</span>
-                             <span className="text-slate-300 group-hover:text-indigo-500">+</span>
-                          </button>
-                       ))}
-                    </div>
-                 )}
-              </div>
-
-           </div>
+        {/* RIGHT: DESKTOP SIDEBAR (Hidden on Mobile) */}
+        <aside className="hidden lg:flex w-80 bg-slate-50 border-l border-slate-200 flex-col z-10">
+           <SidebarContent />
         </aside>
+
+        {/* MOBILE SIDEBAR DRAWER (Overlay) */}
+        {isMobileSidebarOpen && (
+          <div className="absolute inset-0 z-50 flex justify-end lg:hidden">
+             {/* Backdrop */}
+             <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm" onClick={() => setIsMobileSidebarOpen(false)} />
+             
+             {/* Drawer */}
+             <div className="relative w-80 bg-white h-full shadow-2xl animate-in slide-in-from-right duration-200">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
+                   <h3 className="font-bold text-slate-800">Inställningar</h3>
+                   <button onClick={() => setIsMobileSidebarOpen(false)} className="p-2 text-slate-500 hover:bg-slate-200 rounded-full">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                   </button>
+                </div>
+                <SidebarContent />
+             </div>
+          </div>
+        )}
 
       </div>
     </div>

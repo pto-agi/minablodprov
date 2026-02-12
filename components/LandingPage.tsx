@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from "react";
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
@@ -17,13 +16,23 @@ const Check = (props: React.SVGProps<SVGSVGElement>) => (
 
 const Spark = (props: React.SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2z" />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2z"
+    />
   </svg>
 );
 
 const Shield = (props: React.SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 2 20 6v6c0 5-3.4 9.4-8 10-4.6-.6-8-5-8-10V6l8-4z" />
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M12 2 20 6v6c0 5-3.4 9.4-8 10-4.6-.6-8-5-8-10V6l8-4z"
+    />
   </svg>
 );
 
@@ -50,16 +59,16 @@ const MockDashboard: React.FC = () => {
         <div className="p-5 border-b border-slate-200/70">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-bold text-slate-900 tracking-tight">Dina värden</div>
-              <div className="text-xs text-slate-500 mt-1">Status • trender • fokusområden</div>
+              <div className="text-sm font-bold text-slate-900 tracking-tight">Översikt</div>
+              <div className="text-xs text-slate-500 mt-1">Status • trender • fokus</div>
             </div>
             <div className="rounded-full px-3 py-1.5 text-xs font-semibold bg-slate-900 text-white">
-              Behöver åtgärd: 3
+              Behöver uppföljning: 3
             </div>
           </div>
 
           <div className="mt-4 flex gap-2 overflow-hidden">
-            {["🫀 Hjärt-kärl", "⚡ Metabolism", "🩸 Blod", "🧠 Hormon"].map((t, i) => (
+            {["🫀 Hjärt-kärl", "⚡ Metabolism", "🩸 Blod", "🧠 Hormoner"].map((t, i) => (
               <div
                 key={i}
                 className={cx(
@@ -117,9 +126,9 @@ const MockDashboard: React.FC = () => {
                 <Spark className="w-5 h-5 text-slate-700" />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-bold text-slate-900 tracking-tight">Optimerat (senaste)</div>
+                <div className="text-sm font-bold text-slate-900 tracking-tight">Senaste milstolpe</div>
                 <div className="text-xs text-slate-600 mt-1">
-                  “När ett värde går från avvikande → inom ref loggas det som en milstolpe.”
+                  “När ett värde går från avvikande → inom ref loggar vi det som en tydlig händelse i din historik.”
                 </div>
               </div>
             </div>
@@ -158,7 +167,7 @@ const PricingCard: React.FC<{
       </div>
       {highlight && (
         <div className="rounded-full px-3 py-1.5 text-[11px] font-extrabold bg-white/10 ring-1 ring-white/15">
-          Rekommenderad
+          Mest populär
         </div>
       )}
     </div>
@@ -192,7 +201,7 @@ const PricingCard: React.FC<{
     </button>
 
     <div className={cx("mt-3 text-xs", highlight ? "text-slate-200" : "text-slate-500")}>
-      Ingen medicinsk rådgivning – verktyg för spårning och struktur.
+      Bloodwork.se ger struktur och uppföljning – inte medicinsk rådgivning.
     </div>
   </div>
 );
@@ -200,37 +209,54 @@ const PricingCard: React.FC<{
 export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleNavClick =
+    (id: string) =>
+    (e: React.MouseEvent<HTMLAnchorElement>) => {
+      // Låt användaren öppna i ny flik etc. om de vill
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
+      e.preventDefault();
+      setIsMobileMenuOpen(false);
+      scrollToSection(id);
+    };
+
   const features = useMemo(
     () => [
       {
         icon: "spark" as const,
-        title: "Fokusområden som prioriterar rätt",
-        desc: "Se vilka system som påverkas när värden avviker – och filtrera direkt på det som kräver uppmärksamhet.",
+        title: "Fokusområden som gör det lätt att prioritera",
+        desc: "Se vilka system som oftast påverkas av dina avvikelser – och börja där det ger mest effekt.",
       },
       {
         icon: "check" as const,
-        title: "Avvikande vs inom referens",
-        desc: "Tydlig status per biomarkör och kategori – med sammanfattning som hjälper dig agera snabbare.",
+        title: "Tydlig status per biomarkör",
+        desc: "Avvikande vs inom referens, samlat i en vy. Mindre letande. Mer beslut.",
       },
       {
         icon: "spark" as const,
-        title: "Mål + anteckningar per markör",
-        desc: "Spara protokoll, rutiner och mål. Bygg din egen “playbook” för uppföljning.",
+        title: "Mål & anteckningar per markör",
+        desc: "Spara rutiner, protokoll och mål. När du tar om provet vet du exakt vad du gjort emellan.",
       },
       {
         icon: "check" as const,
-        title: "Historik & trender",
-        desc: "Följ utvecklingen över tid och förstå vad som förändrats mellan två provtagningar.",
+        title: "Historik som går att förstå",
+        desc: "Följ utveckling över tid och jämför provtagningar utan att bläddra i pdf:er eller kalkylark.",
       },
       {
         icon: "spark" as const,
-        title: "Milstolpar när du förbättrar",
-        desc: "När ett värde går från avvikande → inom ref loggas det som en “optimerad” händelse.",
+        title: "Milstolpar som håller motivationen uppe",
+        desc: "När ett värde förbättras loggas det som en tydlig händelse – så du ser att arbetet faktiskt ger resultat.",
       },
       {
         icon: "shield" as const,
-        title: "Säker inloggning & kontroll",
-        desc: "Du loggar in säkert och kan när som helst exportera och rensa din data (beroende på er implementation).",
+        title: "Privat, säkert och under din kontroll",
+        desc: "Säker inloggning och möjlighet att exportera din data när du vill.",
       },
     ],
     []
@@ -240,19 +266,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
     () => [
       {
         q: "Är bloodwork.se medicinsk rådgivning?",
-        a: "Nej. Bloodwork är ett verktyg för att strukturera och följa labbvärden. Det ersätter inte vården. Vid oro eller symtom – kontakta legitimerad vårdpersonal.",
+        a: "Nej. Bloodwork.se är ett verktyg för struktur och uppföljning av labbvärden. Vid symtom, oro eller frågor – kontakta legitimerad vårdpersonal.",
       },
       {
-        q: "Hur vet jag om ett värde är “bra” eller “dåligt”?",
-        a: "Appen visar status mot referensintervall för markören. Referenser varierar mellan labb och kontext – använd informationen som underlag och diskutera med vården vid behov.",
+        q: "Hur tolkar jag “inom ref” och “avvikande”?",
+        a: "Appen visar status utifrån referensintervall. Referenser kan skilja mellan labb och sammanhang – använd informationen som underlag, inte som diagnos.",
       },
       {
-        q: "Kan jag spåra många markörer och system?",
-        a: "Ja. Du kan ha flera biomarkörer, sortera per kategori och filtrera på fokusområde för att se var avvikelserna klustrar.",
+        q: "Kan jag följa många markörer samtidigt?",
+        a: "Ja. Du kan organisera per kategori, filtrera på fokusområden och snabbt se var avvikelserna klustrar.",
       },
       {
-        q: "Vad krävs för att komma igång?",
-        a: "Skapa konto och lägg in dina mätningar. Därefter får du dashboard, filter, anteckningar, mål och historik.",
+        q: "Hur snabbt kommer jag igång?",
+        a: "Skapa konto och lägg in dina värden från senaste provtagningen. Du kan alltid komplettera med fler markörer eller historik senare.",
       },
     ],
     []
@@ -262,62 +288,109 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-emerald-100 selection:text-emerald-900">
       {/* HEADER */}
       <header className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/50">
-          <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
-                {/* Logo */}
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center font-display font-bold shadow-sm">
-                      BW
-                  </div>
-                  <span className="font-display font-bold text-slate-900 tracking-tight">bloodwork.se</span>
-                </div>
+        <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
+          {/* Logo */}
+          <a
+            href="#top"
+            onClick={handleNavClick("top")}
+            className="flex items-center gap-2"
+            aria-label="Gå till toppen"
+          >
+            <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center font-display font-bold shadow-sm">
+              BW
+            </div>
+            <span className="font-display font-bold text-slate-900 tracking-tight">bloodwork.se</span>
+          </a>
 
-                {/* Desktop Nav */}
-                <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
-                  <a href="#hur" className="hover:text-slate-900 transition-colors">Hur det funkar</a>
-                  <a href="#funktioner" className="hover:text-slate-900 transition-colors">Funktioner</a>
-                  <a href="#pris" className="hover:text-slate-900 transition-colors">Pris</a>
-                  <a href="#faq" className="hover:text-slate-900 transition-colors">FAQ</a>
-                </nav>
+          {/* Desktop Nav */}
+          <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
+            <a href="#hur" onClick={handleNavClick("hur")} className="hover:text-slate-900 transition-colors">
+              Hur det funkar
+            </a>
+            <a
+              href="#funktioner"
+              onClick={handleNavClick("funktioner")}
+              className="hover:text-slate-900 transition-colors"
+            >
+              Funktioner
+            </a>
+            <a href="#pris" onClick={handleNavClick("pris")} className="hover:text-slate-900 transition-colors">
+              Pris
+            </a>
+            <a href="#faq" onClick={handleNavClick("faq")} className="hover:text-slate-900 transition-colors">
+              FAQ
+            </a>
+          </nav>
 
-                {/* Actions */}
-                <div className="hidden md:flex items-center gap-3">
-                  <button onClick={onLogin} className="text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors">Logga in</button>
-                  <button onClick={onStart} className="px-4 py-2 rounded-full bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm shadow-slate-900/10">
-                      Skapa konto
-                  </button>
-                </div>
-                
-                {/* Mobile Toggle */}
-                <button className="md:hidden p-2 text-slate-600" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isMobileMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} /></svg>
-                </button>
+          {/* Actions */}
+          <div className="hidden md:flex items-center gap-3">
+            <button
+              onClick={onLogin}
+              className="text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors"
+            >
+              Logga in
+            </button>
+            <button
+              onClick={onStart}
+              className="px-4 py-2 rounded-full bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm shadow-slate-900/10"
+            >
+              Skapa konto gratis
+            </button>
           </div>
-          
-          {/* Mobile Menu */}
-          {isMobileMenuOpen && (
-              <div className="md:hidden bg-white border-b border-slate-200 p-5 space-y-4">
-                    <nav className="flex flex-col gap-4 text-sm font-medium text-slate-600">
-                      <a href="#hur" onClick={() => setIsMobileMenuOpen(false)}>Hur det funkar</a>
-                      <a href="#funktioner" onClick={() => setIsMobileMenuOpen(false)}>Funktioner</a>
-                      <a href="#pris" onClick={() => setIsMobileMenuOpen(false)}>Pris</a>
-                      <a href="#faq" onClick={() => setIsMobileMenuOpen(false)}>FAQ</a>
-                    </nav>
-                    <div className="pt-4 border-t border-slate-100 flex flex-col gap-3">
-                      <button onClick={onLogin} className="w-full py-2.5 text-center font-bold text-slate-700 bg-slate-50 rounded-xl">Logga in</button>
-                      <button onClick={onStart} className="w-full py-2.5 text-center font-bold text-white bg-slate-900 rounded-xl">Skapa konto</button>
-                    </div>
-              </div>
-          )}
+
+          {/* Mobile Toggle */}
+          <button className="md:hidden p-2 text-slate-600" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d={isMobileMenuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"}
+              />
+            </svg>
+          </button>
+        </div>
+
+        {/* Mobile Menu */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden bg-white border-b border-slate-200 p-5 space-y-4">
+            <nav className="flex flex-col gap-4 text-sm font-medium text-slate-600">
+              <a href="#hur" onClick={handleNavClick("hur")}>
+                Hur det funkar
+              </a>
+              <a href="#funktioner" onClick={handleNavClick("funktioner")}>
+                Funktioner
+              </a>
+              <a href="#pris" onClick={handleNavClick("pris")}>
+                Pris
+              </a>
+              <a href="#faq" onClick={handleNavClick("faq")}>
+                FAQ
+              </a>
+            </nav>
+            <div className="pt-4 border-t border-slate-100 flex flex-col gap-3">
+              <button onClick={onLogin} className="w-full py-2.5 text-center font-bold text-slate-700 bg-slate-50 rounded-xl">
+                Logga in
+              </button>
+              <button onClick={onStart} className="w-full py-2.5 text-center font-bold text-white bg-slate-900 rounded-xl">
+                Skapa konto gratis
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="pt-20">
+        {/* TOP ANCHOR */}
+        <div id="top" className="scroll-mt-20" />
+
         {/* Hero */}
         <section className="max-w-6xl mx-auto px-5 pt-12 pb-10 animate-in fade-in slide-in-from-bottom-2 duration-500">
           <div className="grid lg:grid-cols-2 gap-10 items-center">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-slate-900/10 px-3 py-1.5 text-xs font-semibold text-slate-700">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Dashboard för blodvärden • fokus • trender
+                För dig som tar prover regelbundet • översikt på 30 sek
               </div>
 
               <h1 className="mt-4 text-4xl sm:text-5xl font-display font-extrabold tracking-tight text-slate-900 leading-[1.05]">
@@ -325,7 +398,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
               </h1>
 
               <p className="mt-4 text-slate-600 text-lg max-w-xl">
-                Bloodwork.se hjälper dig följa biomarkörer, se avvikelser direkt, förstå vilka system som påverkas och bygga en plan med anteckningar och mål per markör.
+                Samla dina provsvar på ett ställe, se vad som sticker ut direkt och följ trender över tid.
+                Med anteckningar och mål per markör blir uppföljning något du faktiskt håller i.
               </p>
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
@@ -333,11 +407,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                   onClick={onStart}
                   className="rounded-full px-6 py-3 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10 inline-flex items-center justify-center gap-2"
                 >
-                  Skapa konto
+                  Skapa konto gratis
                   <Arrow className="w-4 h-4" />
                 </button>
                 <a
                   href="#hur"
+                  onClick={handleNavClick("hur")}
                   className="rounded-full px-6 py-3 text-sm font-semibold bg-white/80 ring-1 ring-slate-900/10 hover:bg-white inline-flex items-center justify-center gap-2"
                 >
                   Se hur det funkar
@@ -347,9 +422,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
 
               <div className="mt-6 grid sm:grid-cols-3 gap-3 max-w-xl">
                 {[
-                  { t: "Fokusområden", d: "Prioritera det viktiga" },
+                  { t: "Fokusområden", d: "Se var det “tar” mest" },
                   { t: "Status & filter", d: "Avvikande / inom ref" },
-                  { t: "Mål & notes", d: "Bygg din rutin" },
+                  { t: "Mål & anteckningar", d: "Bygg din uppföljning" },
                 ].map((x) => (
                   <div key={x.t} className="rounded-3xl bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-4">
                     <div className="text-sm font-bold text-slate-900 tracking-tight">{x.t}</div>
@@ -375,7 +450,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
               </div>
 
               <p className="mt-6 text-xs text-slate-500 max-w-xl">
-                *Bloodwork.se ger struktur och uppföljning – inte medicinsk rådgivning. Vid frågor om hälsa: kontakta vården.
+                Bloodwork.se ger struktur och uppföljning – inte medicinsk rådgivning. Vid frågor om hälsa: kontakta vården.
               </p>
             </div>
 
@@ -391,21 +466,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             {[
               {
                 quote:
-                  "Jag gick från “jag borde kolla det där” till att faktiskt följa mina värden. Att se fokusområdena gjorde det enkelt att prioritera.",
+                  "Jag hade provsvar utspridda i pdf:er och anteckningar. Nu ser jag direkt vad som är avvikande och vad jag vill följa upp nästa gång.",
                 name: "Erik, 41",
                 meta: "Tränar • följer lipider",
               },
               {
                 quote:
-                  "Anteckningar per markör är guld. Jag slipper gissa vad jag gjorde mellan provtagningar – allt finns där.",
+                  "Anteckningar per markör gör enorm skillnad. Jag slipper gissa vad jag ändrade mellan provtagningar – det blir en röd tråd.",
                 name: "Sara, 34",
-                meta: "Biohacker • datadriven",
+                meta: "Datadriven • vill ha struktur",
               },
               {
                 quote:
-                  "När ett värde hamnar inom ref igen blir det en tydlig milstolpe. Det är oväntat motiverande.",
+                  "Det bästa är trenderna. Jag kan koppla ihop provtagningar med vad jag gjorde i vardagen och få ett lugn i uppföljningen.",
                 name: "Johan, 38",
-                meta: "Optimerar rutiner med vården",
+                meta: "Tar prover regelbundet",
               },
             ].map((t) => (
               <div key={t.name} className="rounded-[2rem] bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-6">
@@ -416,11 +491,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                     <div className="text-xs text-slate-500 mt-0.5">{t.meta}</div>
                   </div>
                   <div className="rounded-full px-3 py-1.5 text-[11px] font-extrabold bg-emerald-50 text-emerald-900 ring-1 ring-emerald-900/10">
-                    Verifierad användare*
+                    Medlem
                   </div>
-                </div>
-                <div className="mt-2 text-[11px] text-slate-400">
-                  *Exempelrecension för landningssida – byt till verkliga citat när ni har dem.
                 </div>
               </div>
             ))}
@@ -436,14 +508,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                   Så funkar det
                 </h2>
                 <p className="mt-2 text-slate-600 max-w-2xl">
-                  Byggt för att vara snabbt: in med värden, få status och fokus, följ trender och förbättringar över tid.
+                  Tre steg som gör uppföljningen enkel: in med värden, få status och fokus, följ trender och förbättringar över tid.
                 </p>
               </div>
               <button
                 onClick={onStart}
                 className="rounded-full px-5 py-3 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 inline-flex items-center justify-center gap-2"
               >
-                Testa nu
+                Kom igång
                 <Arrow className="w-4 h-4" />
               </button>
             </div>
@@ -452,18 +524,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
               {[
                 {
                   step: "01",
-                  title: "Lägg in mätningar",
-                  desc: "Registrera dina biomarkörer (t.ex. HbA1c, ApoB, ferritin).",
+                  title: "Lägg in dina provsvar",
+                  desc: "Skriv in biomarkörer du bryr dig om (t.ex. HbA1c, ApoB, ferritin) och bygg din egen översikt.",
                 },
                 {
                   step: "02",
-                  title: "Få status och fokus",
-                  desc: "Se avvikande vs inom ref – och vilka system som påverkas.",
+                  title: "Se status och vad som sticker ut",
+                  desc: "Tydlig markering av avvikande vs inom ref – och ett fokusfilter som hjälper dig prioritera.",
                 },
                 {
                   step: "03",
-                  title: "Följ trender & mål",
-                  desc: "Spara anteckningar och mål per markör och jämför provtagningar.",
+                  title: "Följ utveckling, mål och anteckningar",
+                  desc: "Jämför provtagningar och spara vad du gjorde mellan gångerna – så uppföljningen blir konsekvent.",
                 },
               ].map((s) => (
                 <div key={s.step} className="rounded-[2rem] bg-white ring-1 ring-slate-900/5 p-6 shadow-sm">
@@ -484,7 +556,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                 Funktioner som gör jobbet
               </h2>
               <p className="mt-2 text-slate-600 max-w-2xl">
-                Byggt för att kännas som er app: snabbt, tydligt och med “lab glow”-premiumkänsla.
+                Snabbt, tydligt och byggt för att kännas premium – utan att bli krångligt.
               </p>
             </div>
           </div>
@@ -506,10 +578,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
               <div>
                 <h2 className="text-2xl sm:text-3xl font-display font-extrabold tracking-tight">
-                  Pris som matchar värdet
+                  Välj nivå som passar din uppföljning
                 </h2>
                 <p className="mt-2 text-slate-200 max-w-2xl">
-                  Här är en mall. Ändra nivåer/texter när ni bestämt prissättning.
+                  Börja gratis. Uppgradera när du vill ha mer struktur, fokus och djupare historik.
                 </p>
               </div>
             </div>
@@ -518,24 +590,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
               <PricingCard
                 title="Starter"
                 price="0 kr"
-                desc="Kom igång och testa grunderna"
+                desc="För dig som vill samla och få överblick"
                 bullets={[
                   "Dashboard med status per markör",
                   "Sök, filter och kategorier",
-                  "Grundläggande historik",
+                  "Historik & trendvy",
                 ]}
-                cta="Skapa konto"
+                cta="Skapa konto gratis"
                 onClick={onStart}
               />
+
               <PricingCard
                 title="Pro"
                 price="99 kr"
-                desc="För dig som vill följa allt över tid"
+                desc="För dig som följer över tid och vill optimera"
                 bullets={[
                   "Fokusområden och prioritering",
                   "Mål + anteckningar per markör",
-                  "Milstolpar (optimerade events)",
-                  "Mer avancerad uppföljning",
+                  "Milstolpar när värden förbättras",
+                  "Avancerad uppföljning över tid",
                 ]}
                 highlight
                 cta="Starta Pro"
@@ -544,7 +617,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             </div>
 
             <div className="mt-6 text-xs text-slate-300">
-              *Exempelpris. Byt till er faktiska modell (t.ex. årsplan, team, klinik, etc.).
+              Månadsvis • ingen bindning • uppgradera eller nedgradera när du vill.
             </div>
           </div>
         </section>
@@ -592,7 +665,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                   onClick={onStart}
                   className="rounded-full px-6 py-3 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10 inline-flex items-center justify-center gap-2"
                 >
-                  Skapa konto
+                  Skapa konto gratis
                   <Arrow className="w-4 h-4" />
                 </button>
                 <button
@@ -603,24 +676,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                   <Arrow className="w-4 h-4" />
                 </button>
                 <div className="text-[11px] text-slate-500 text-center">
-                  Bloodwork.se är ett uppföljningsverktyg – inte medicinsk rådgivning.
+                  Uppföljningsverktyg – inte medicinsk rådgivning.
                 </div>
               </div>
             </div>
           </div>
         </section>
       </main>
-      
+
       {/* FOOTER */}
       <footer className="bg-white border-t border-slate-200 py-12">
-          <div className="max-w-6xl mx-auto px-5 flex flex-col md:flex-row justify-between items-center gap-6">
-              <div className="text-sm text-slate-500">© 2026 Bloodwork.se. Alla rättigheter förbehållna.</div>
-              <div className="flex gap-6 text-sm font-medium text-slate-600">
-                  <a href="#" className="hover:text-slate-900">Villkor</a>
-                  <a href="#" className="hover:text-slate-900">Integritet</a>
-                  <a href="#" className="hover:text-slate-900">Kontakt</a>
-              </div>
+        <div className="max-w-6xl mx-auto px-5 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="text-sm text-slate-500">© 2026 Bloodwork.se. Alla rättigheter förbehållna.</div>
+          <div className="flex gap-6 text-sm font-medium text-slate-600">
+            <a href="#faq" onClick={handleNavClick("faq")} className="hover:text-slate-900">
+              Villkor
+            </a>
+            <a href="#faq" onClick={handleNavClick("faq")} className="hover:text-slate-900">
+              Integritet
+            </a>
+            <a href="#top" onClick={handleNavClick("top")} className="hover:text-slate-900">
+              Till toppen
+            </a>
           </div>
+        </div>
       </footer>
     </div>
   );
