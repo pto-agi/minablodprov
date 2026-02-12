@@ -18,17 +18,19 @@ const cx = (...classes: Array<string | false | null | undefined>) => classes.fil
 // Internal Icon Component for Cleaner Code
 const NavIcon = ({ name, active }: { name: string; active: boolean }) => {
   const colorClass = active ? "text-slate-900" : "text-slate-400 group-hover:text-slate-600";
+  // Increased icon size slightly for better visibility
+  const sizeClass = "w-5 h-5"; 
   
   switch (name) {
     case 'dashboard':
       return (
-        <svg className={cx("w-4 h-4 transition-colors", colorClass)} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg className={cx(sizeClass, "transition-colors", colorClass)} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
         </svg>
       );
     case 'plan':
       return (
-        <svg className={cx("w-4 h-4 transition-colors", colorClass)} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <svg className={cx(sizeClass, "transition-colors", colorClass)} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
         </svg>
       );
@@ -49,25 +51,32 @@ const Header: React.FC<Props> = ({
   ];
 
   return (
-    <header className="fixed top-0 inset-x-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/70 transition-all duration-200">
-      <div className="max-w-6xl mx-auto px-4 h-16 flex justify-between items-center">
+    <header className="fixed top-0 inset-x-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-200/70 transition-all duration-200 shadow-sm sm:shadow-none">
+      <div className="max-w-6xl mx-auto px-3 sm:px-4 h-16 sm:h-20 flex items-center justify-between gap-2 sm:gap-4 relative">
         
-        {/* LOGO AREA */}
-        <div className="flex items-center gap-3 min-w-0 w-24 sm:w-auto">
+        {/* LOGO AREA - Shrink on mobile to give space to nav */}
+        <div className="flex items-center shrink-0">
           <button 
             onClick={() => onNavigate('dashboard')} 
             className="flex items-center hover:opacity-80 transition-opacity"
             aria-label="Gå till översikt"
           >
-            {/* Mobile: Icon only (Increased size h-9 -> h-10) */}
-            <Logo variant="icon" className="h-10 w-10 text-slate-900 md:hidden" />
-            {/* Desktop: Full Logo (Increased size h-8 -> h-9) */}
-            <Logo variant="full" className="h-9 w-auto text-slate-900 hidden md:block" />
+            {/* Mobile: Icon only */}
+            <Logo variant="icon" className="h-9 w-9 text-slate-900 md:hidden" />
+            {/* Desktop: Full Logo */}
+            <Logo variant="full" className="h-8 w-auto text-slate-900 hidden md:block" />
           </button>
         </div>
 
         {/* CENTER NAV - SEGMENTED CONTROL */}
-        <nav className="flex items-center p-1 bg-slate-100/80 rounded-xl ring-1 ring-slate-900/5 absolute left-1/2 -translate-x-1/2">
+        {/* Mobile: Flex-1 to take up all space. Desktop: Absolute center */}
+        <nav className={cx(
+          "flex items-center p-1.5 bg-slate-100/80 rounded-2xl ring-1 ring-slate-900/5 transition-all",
+          // Mobile styles: grow to fill space, static position
+          "flex-1 mx-2 static",
+          // Desktop styles: absolute center, auto width
+          "md:absolute md:left-1/2 md:-translate-x-1/2 md:mx-0 md:w-auto md:flex-none"
+        )}>
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
@@ -75,26 +84,28 @@ const Header: React.FC<Props> = ({
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
                 className={cx(
-                  "group flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-200",
+                  "group flex items-center justify-center gap-2 rounded-xl text-sm font-bold transition-all duration-200",
+                  // Sizing
+                  "py-2.5 px-2 md:px-6 flex-1 md:flex-none",
                   isActive 
                     ? "bg-white text-slate-900 shadow-sm ring-1 ring-black/5" 
                     : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50"
                 )}
               >
                 <NavIcon name={item.id} active={isActive} />
-                <span>{item.label}</span>
+                <span className="truncate">{item.label}</span>
               </button>
             );
           })}
         </nav>
 
-        {/* RIGHT ACTIONS: My Account Button */}
-        <div className="flex items-center w-24 sm:w-auto justify-end gap-2">
+        {/* RIGHT ACTIONS */}
+        <div className="flex items-center justify-end gap-2 shrink-0">
           {onRefresh && (
              <button
                 onClick={onRefresh}
                 className={cx(
-                   "p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-colors hidden sm:block",
+                   "p-2.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-colors hidden sm:block",
                    loading && "animate-spin text-slate-500 cursor-not-allowed"
                 )}
                 disabled={loading}
@@ -107,21 +118,24 @@ const Header: React.FC<Props> = ({
           <button
             onClick={() => onNavigate('account')}
             className={cx(
-              "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all border",
+              "flex items-center gap-2 rounded-full transition-all border",
+              // Mobile: Icon only button styling
+              "p-2 sm:px-3 sm:py-2",
               activeTab === 'account'
                 ? "bg-slate-900 text-white border-slate-900 shadow-sm"
                 : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
             )}
+            title="Mitt konto"
           >
             <div className={cx(
-              "w-5 h-5 rounded-full flex items-center justify-center",
+              "w-6 h-6 sm:w-5 sm:h-5 rounded-full flex items-center justify-center",
               activeTab === 'account' ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
             )}>
-               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+               <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
             </div>
             <span className="text-xs font-bold hidden sm:inline">Mitt konto</span>
             {loading && !onRefresh && (
-               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse hidden sm:block" />
             )}
           </button>
         </div>

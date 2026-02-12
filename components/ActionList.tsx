@@ -14,6 +14,7 @@ interface Props {
   onAdd?: (task: string) => Promise<void>;
   variant?: 'card' | 'minimal';
   planTitles?: Record<string, string>;
+  hideTags?: boolean; // New prop to hide individual marker tags
 }
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
@@ -166,10 +167,11 @@ const ActionItem: React.FC<{
   availableMarkers: BloodMarker[];
   planTitles?: Record<string, string>;
   isCompleted?: boolean;
+  hideTags?: boolean;
 }> = ({ 
   todo, isEditing, onToggle, startEditing, cancelEditing, saveEditing, 
   editTaskText, setEditTaskText, editDueDate, setEditDueDate, 
-  onDelete, onUpdateTags, onTagClick, onPlanClick, onUpdateTask, availableMarkers, planTitles, isCompleted
+  onDelete, onUpdateTags, onTagClick, onPlanClick, onUpdateTask, availableMarkers, planTitles, isCompleted, hideTags
 }) => {
   const [tagModalId, setTagModalId] = useState<string | null>(null);
   const planName = todo.linkedJournalId && planTitles ? planTitles[todo.linkedJournalId] : null;
@@ -258,8 +260,8 @@ const ActionItem: React.FC<{
                    </span>
                  )}
 
-                 {/* Tags */}
-                 {todo.markerIds?.map(mid => {
+                 {/* Tags (Markers) - HIDDEN if hideTags is true */}
+                 {!hideTags && todo.markerIds?.map(mid => {
                    const m = getMarker(mid);
                    if (!m) return null;
                    
@@ -286,7 +288,8 @@ const ActionItem: React.FC<{
                    )
                  })}
                  
-                 {onUpdateTags && (
+                 {/* Only show add tag button if tags are not hidden */}
+                 {!hideTags && onUpdateTags && (
                    <div className="relative">
                      <button 
                        onClick={() => setTagModalId(tagModalId === todo.id ? null : todo.id)}
@@ -353,7 +356,8 @@ const ActionList: React.FC<Props> = ({
   onDelete, 
   onAdd,
   variant = 'card',
-  planTitles
+  planTitles,
+  hideTags = false
 }) => {
   const [newTask, setNewTask] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -408,7 +412,7 @@ const ActionList: React.FC<Props> = ({
 
   const itemProps = {
     onToggle, onUpdateTags, onUpdateTask, onTagClick, onPlanClick, onDelete, 
-    availableMarkers, planTitles,
+    availableMarkers, planTitles, hideTags,
     startEditing, cancelEditing, saveEditing,
     editTaskText, setEditTaskText, editDueDate, setEditDueDate
   };

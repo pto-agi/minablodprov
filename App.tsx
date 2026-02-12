@@ -22,9 +22,9 @@ import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
 import ImportModal from './components/ImportModal';
 import JournalHub from './components/JournalHub';
-import JournalEditor from './components/JournalEditor';
+// JournalEditor removed - merged into ActivePlanView
 import AccountView from './components/AccountView';
-import ActivePlanView from './components/ActivePlanView'; // NEW
+import ActivePlanView from './components/ActivePlanView'; 
 import Header, { NavTab } from './components/Header';
 import Footer from './components/Footer';
 import { supabase } from './supabaseClient';
@@ -218,7 +218,8 @@ const App: React.FC = () => {
   // View State: Dashboard (Home), Plan (Journal), Account (My Pages), Archive (Old plans)
   const [view, setView] = useState<'dashboard' | 'plan' | 'account' | 'archive'>('dashboard');
   
-  const [editingPlan, setEditingPlan] = useState<JournalPlan | null | 'new'>(null);
+  // Tracks if we are creating/editing a specific plan ID, or 'new' for creation mode
+  const [editingPlanId, setEditingPlanId] = useState<string | 'new' | null>(null);
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -587,12 +588,32 @@ const App: React.FC = () => {
      return map;
   }, [journalPlans]);
 
-  // ACTIVE PLAN LOGIC: The most recently updated plan is considered "Active"
+  // ACTIVE PLAN LOGIC: The most recently updated plan is considered "Active", OR the one currently being edited/viewed
   const activePlan = useMemo(() => {
+      // If we are "creating" a new plan, return a dummy draft
+      if (editingPlanId === 'new') {
+          return {
+              id: 'temp-new',
+              title: '',
+              content: '',
+              linkedMarkerIds: [],
+              goals: [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              isPinned: false
+          } as JournalPlan;
+      }
+      
+      // If we are viewing a specific old plan from archive
+      if (editingPlanId && editingPlanId !== 'new') {
+          return journalPlans.find(p => p.id === editingPlanId) || null;
+      }
+
+      // Default: The latest plan
       if(journalPlans.length === 0) return null;
       // Already sorted by updated_at in fetchData
       return journalPlans[0]; 
-  }, [journalPlans]);
+  }, [journalPlans, editingPlanId]);
 
   const stats = useMemo(() => {
     const optimizedEvents: OptimizationEvent[] = [];
@@ -776,6 +797,7 @@ const App: React.FC = () => {
       setQuery('');
     } else if (tab === 'plan') {
       setView('plan'); // Will show ActivePlanView
+      setEditingPlanId(null); // Reset to default active plan
       setSelectedMarkerId(null);
     } else if (tab === 'account') {
       setView('account');
@@ -1208,8 +1230,8 @@ const App: React.FC = () => {
       if (!session?.user) throw new Error("No user");
       
       try {
-        const isNew = editingPlan === 'new';
-        const id = isNew ? undefined : (editingPlan as JournalPlan).id;
+        const isNew = editingPlanId === 'new';
+        const id = isNew ? undefined : editingPlanId; // Use active ID
 
         let savedId = id;
 
@@ -1222,7 +1244,7 @@ const App: React.FC = () => {
             target_date: targetDate || null,
             updated_at: new Date().toISOString()
         };
-        if (id) payload.id = id;
+        if (id && id !== 'new') payload.id = id;
 
         const { data, error } = await supabase
           .from('journal_entries')
@@ -1259,19 +1281,9 @@ const App: React.FC = () => {
 
         await fetchData();
         
-        if (editingPlan) {
-            setEditingPlan({
-                id: data.id,
-                title: data.title,
-                content: data.content,
-                createdAt: data.created_at,
-                updatedAt: data.updated_at,
-                startDate: data.start_date,
-                targetDate: data.target_date,
-                isPinned: data.is_pinned,
-                linkedMarkerIds: markerIds,
-                goals: goals // Optimistic update
-            });
+        // If we just created a new one, switch out of 'new' mode to the real ID
+        if (isNew && savedId) {
+            setEditingPlanId(savedId);
         }
 
         showToast({ type: 'success', title: 'Plan sparad', message: 'Din plan har uppdaterats.' });
@@ -1281,7 +1293,7 @@ const App: React.FC = () => {
         showToast({ type: 'error', title: 'Kunde inte spara', message: humanizeSupabaseError(err) });
         throw err;
       }
-  }, [session?.user, editingPlan, fetchData, showToast]);
+  }, [session?.user, editingPlanId, fetchData, showToast]);
 
   const handleDeleteJournalPlan = useCallback(async (id: string) => {
       if (!session?.user) return;
@@ -1336,29 +1348,6 @@ const App: React.FC = () => {
         onLogin={() => setShowAuth(true)}
       />
     );
-  }
-
-  // --- EDITOR VIEW (Full Screen) ---
-  if (editingPlan) {
-      const plan = editingPlan === 'new' ? null : editingPlan;
-      // Filter linked todos
-      const linked = plan ? todos.filter(t => t.linkedJournalId === plan.id) : [];
-
-      return (
-          <JournalEditor 
-             plan={plan}
-             allMarkers={dashboardData} // IMPORTANT: Passing full history data for status check
-             linkedTodos={linked}
-             onClose={() => setEditingPlan(null)}
-             onSave={handleSaveJournalPlan}
-             onDelete={handleDeleteJournalPlan} // Passed here
-             onAddTodo={(task, jId) => handleAddTodo(task, jId)}
-             onToggleTodo={handleToggleTodo}
-             onDeleteTodo={handleDeleteTodo}
-             onUpdateTodoTask={handleUpdateTodoTask}
-             onUpdateTags={handleUpdateTodoTags} // NEW: Allows tagging inside journal
-          />
-      );
   }
 
   // --- MARKER DETAIL VIEW ---
@@ -1496,21 +1485,33 @@ const App: React.FC = () => {
               <JournalHub 
                   plans={journalPlans} 
                   markers={bloodMarkers} 
-                  onOpenPlan={(p) => setEditingPlan(p || 'new')} 
+                  onOpenPlan={(p) => {
+                      if(!p) {
+                          setEditingPlanId('new');
+                          setView('plan');
+                      } else {
+                          setEditingPlanId(p.id);
+                          setView('plan');
+                      }
+                  }} 
                   onDeletePlan={handleDeleteJournalPlan} // Passed here
               />
            </div>
         ) : view === 'plan' ? (
-           // ACTIVE PLAN VIEW
+           // ACTIVE PLAN VIEW (Merged with Editor)
            <ActivePlanView 
               plan={activePlan} 
               allMarkers={dashboardData} 
-              todos={todos.filter(t => t.linkedJournalId === activePlan?.id)} // Show all tasks (including done)
-              onEdit={() => setEditingPlan(activePlan)}
-              onCreate={() => setEditingPlan('new')}
+              todos={todos.filter(t => activePlan?.id === 'temp-new' ? false : t.linkedJournalId === activePlan?.id)} 
+              initialEditMode={editingPlanId === 'new'} // Prop to trigger edit mode immediately
+              onSave={handleSaveJournalPlan} // Passing save handler directly
+              onDelete={handleDeleteJournalPlan}
               onViewArchive={() => setView('archive')}
               onToggleTodo={handleToggleTodo}
               onDeleteTodo={handleDeleteTodo}
+              onAddTodo={handleAddTodo}
+              onUpdateTodoTask={handleUpdateTodoTask}
+              onCreate={() => setEditingPlanId('new')}
            />
         ) : (
            // DASHBOARD VIEW
@@ -1522,28 +1523,25 @@ const App: React.FC = () => {
                   attentionMarkers={stats.attentionMarkers}
                   optimizedCount={stats.optimizedEvents.length}
                   coveredAttentionCount={stats.coveredAttentionCount}
-                  history={statsHistory} // NEW
+                  history={statsHistory}
                   onOptimizedClick={handleOpenOptimizedEvents}
                   onAttentionClick={handleAttentionClick}
-                />
-              )}
-              
-              {!loadingData && activeTodos.length > 0 && (
-                <ActionList 
+                  // Todo Props
                   todos={activeTodos}
-                  availableMarkers={bloodMarkers}
-                  onToggle={handleToggleTodo}
-                  onDelete={handleDeleteTodo}
-                  onTagClick={setSelectedMarkerId}
+                  onToggleTodo={handleToggleTodo}
+                  onDeleteTodo={handleDeleteTodo}
+                  onUpdateTodoTask={handleUpdateTodoTask}
+                  onAddTodo={handleAddTodo} // Optional generic add
                   onPlanClick={(journalId) => {
-                     // Find and open the plan
-                     const plan = journalPlans.find(p => p.id === journalId);
-                     if(plan) setEditingPlan(plan);
+                     setEditingPlanId(journalId);
+                     setView('plan');
                   }}
+                  onViewAllPlans={() => setView('archive')}
+                  availableMarkers={bloodMarkers}
                   planTitles={planTitles}
                 />
               )}
-
+              
               <section className="mb-6 px-1 flex flex-col md:flex-row gap-3 items-stretch md:items-center">
                   <div className="relative flex-1">
                      <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
