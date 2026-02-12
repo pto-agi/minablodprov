@@ -788,8 +788,11 @@ const App: React.FC = () => {
 
   const handleAttentionClick = useCallback(() => {
     setStatusFilter('attention');
-    const el = document.getElementById('marker-list-top');
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
+    // Give React a moment to render the filtered list
+    setTimeout(() => {
+        const el = document.getElementById('active-result-list');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
   }, []);
 
   const handleToggleIgnore = useCallback(async (markerId: string) => {
@@ -1665,7 +1668,7 @@ const App: React.FC = () => {
                           <CategoryGroup key={category} title={category} markers={markers} onSelectMarker={setSelectedMarkerId} onToggleIgnore={handleToggleIgnore} />
                         ))
                       ) : (
-                        <div className="flex flex-col gap-3 px-1">
+                        <div id="active-result-list" className="flex flex-col gap-3 px-1 scroll-mt-32">
                           {filteredDashboardData.map(marker => (
                              <BloodMarkerCard 
                               key={marker.id} 

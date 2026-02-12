@@ -23,7 +23,9 @@ const Icon = ({ name, className }: { name: string; className?: string }) => {
     check: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />,
     export: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />,
     eyeOff: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />,
-    eye: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    eye: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />,
+    info: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
+    activity: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
   };
   return <svg className={cx("w-5 h-5", className)} fill="none" stroke="currentColor" viewBox="0 0 24 24">{icons[name] || icons.eye}</svg>;
 };
@@ -59,6 +61,31 @@ function getRangeBadge(value: number, minRef: number, maxRef: number, isIgnored?
   return { label: 'Optimalt', color: 'emerald', bg: 'bg-emerald-50', text: 'text-emerald-800', ring: 'ring-emerald-200', dot: 'bg-emerald-400' };
 }
 
+// --- SUB-VIEWS ---
+
+const InfoCard: React.FC<{ title: string; content?: string; type: 'general' | 'low' | 'high' }> = ({ title, content, type }) => {
+  if (!content) return null;
+
+  const styles = {
+    general: "bg-indigo-50/50 border-indigo-100 text-slate-700",
+    low: "bg-amber-50/50 border-amber-100 text-slate-700",
+    high: "bg-rose-50/50 border-rose-100 text-slate-700"
+  };
+
+  const headerStyles = {
+    general: "text-indigo-900",
+    low: "text-amber-900",
+    high: "text-rose-900"
+  };
+
+  return (
+    <div className={cx("rounded-3xl p-6 border", styles[type])}>
+      <h4 className={cx("text-sm font-bold uppercase tracking-wider mb-3", headerStyles[type])}>{title}</h4>
+      <p className="text-sm leading-relaxed whitespace-pre-wrap">{content}</p>
+    </div>
+  );
+};
+
 // --- MAIN COMPONENT ---
 
 interface Props {
@@ -82,6 +109,7 @@ interface Props {
 }
 
 type ChartRange = '1m' | '3m' | '6m' | '1y' | 'all';
+type ViewTab = 'data' | 'info';
 
 const DetailView: React.FC<Props> = ({
   data,
@@ -107,6 +135,7 @@ const DetailView: React.FC<Props> = ({
   }, []);
 
   // --- STATE ---
+  const [activeTab, setActiveTab] = useState<ViewTab>('data');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   
@@ -227,12 +256,12 @@ const DetailView: React.FC<Props> = ({
     ? getRangeBadge(latest.value, data.minRef, data.maxRef, data.isIgnored) 
     : { color: 'slate', bg: 'bg-slate-100', text: 'text-slate-600', label: 'Inga data', dot: 'bg-slate-400', ring: 'ring-slate-200' };
 
+  const hasInfo = Boolean(data.description || data.recommendationLow || data.riskLow || data.recommendationHigh || data.riskHigh);
+
   return (
     <div className="pb-32 bg-slate-50 min-h-screen animate-in fade-in duration-300">
       
       {/* 1. Sub-Header for Detail View */}
-      {/* Changed top-0 to top-14 to sit under main header, or just let it scroll normally? 
-          Let's make it sticky under the main header (approx 4rem/64px) */}
       <div className="sticky top-16 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between">
         <button onClick={onBack} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors p-1 rounded-lg hover:bg-slate-100">
           <Icon name="back" className="w-5 h-5" />
@@ -263,7 +292,7 @@ const DetailView: React.FC<Props> = ({
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-6 space-y-8">
 
-        {/* 2. HERO CARD */}
+        {/* 2. HERO CARD (Always visible) */}
         <section className={cx(
            "relative overflow-hidden rounded-[2rem] bg-white shadow-xl shadow-slate-200/50 ring-1 ring-slate-900/5 p-6 sm:p-8",
            data.isIgnored && "opacity-80 grayscale-[0.5]"
@@ -284,7 +313,6 @@ const DetailView: React.FC<Props> = ({
                   {statusBadge.label}
                 </span>
                 
-                {/* Category Tag */}
                 {data.category && (
                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-white/50 text-slate-600 ring-1 ring-inset ring-slate-900/5 backdrop-blur-sm">
                      {data.category}
@@ -312,16 +340,6 @@ const DetailView: React.FC<Props> = ({
                   </span>
                 )}
               </div>
-
-              {/* Full Description */}
-              {data.description && (
-                <div className="mt-6 pt-6 border-t border-slate-900/5">
-                   <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Om markören</h4>
-                   <p className="text-sm text-slate-600 leading-relaxed max-w-xl">
-                     {data.description}
-                   </p>
-                </div>
-              )}
             </div>
 
             {latest && (
@@ -337,188 +355,275 @@ const DetailView: React.FC<Props> = ({
           </div>
         </section>
 
-        {/* 3. CHART */}
-        {sortedMeasurements.length > 0 && (
-           <section className="bg-white rounded-3xl p-6 shadow-sm ring-1 ring-slate-900/5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                 <h3 className="text-base font-bold text-slate-900">Utveckling</h3>
-                 <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
-                    {(['1m', '3m', '6m', '1y', 'all'] as ChartRange[]).map(r => (
-                       <button
-                          key={r}
-                          onClick={() => setChartRange(r)}
-                          className={cx(
-                             "px-3 py-1.5 text-xs font-bold rounded-lg transition-all capitalize",
-                             chartRange === r ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                          )}
-                       >
-                          {r}
-                       </button>
-                    ))}
-                 </div>
+        {/* 3. TABS */}
+        <div className="flex p-1 bg-slate-200/60 rounded-xl w-full sm:w-fit mx-auto sm:mx-0">
+           <button 
+             onClick={() => setActiveTab('data')}
+             className={cx("flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2", activeTab === 'data' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900")}
+           >
+             <Icon name="activity" className="w-4 h-4" />
+             Min Data
+           </button>
+           <button 
+             onClick={() => setActiveTab('info')}
+             className={cx("flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2", activeTab === 'info' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900")}
+           >
+             <Icon name="info" className="w-4 h-4" />
+             Fakta & Råd
+           </button>
+        </div>
+
+        {/* 4. CONTENT VIEWS */}
+        {activeTab === 'data' ? (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2">
+            
+            {/* CHART */}
+            {sortedMeasurements.length > 0 && (
+              <section className="bg-white rounded-3xl p-6 shadow-sm ring-1 ring-slate-900/5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                    <h3 className="text-base font-bold text-slate-900">Utveckling</h3>
+                    <div className="flex bg-slate-100 p-1 rounded-xl w-fit">
+                        {(['1m', '3m', '6m', '1y', 'all'] as ChartRange[]).map(r => (
+                          <button
+                              key={r}
+                              onClick={() => setChartRange(r)}
+                              className={cx(
+                                "px-3 py-1.5 text-xs font-bold rounded-lg transition-all capitalize",
+                                chartRange === r ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                              )}
+                          >
+                              {r}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                  <div className="h-64 w-full">
+                    <HistoryChart 
+                      measurements={chartData} 
+                      minRef={data.minRef} maxRef={data.maxRef} unit={data.unit}
+                      displayMin={data.displayMin} displayMax={data.displayMax}
+                    />
+                  </div>
+              </section>
+            )}
+
+            {/* ACTIONS & TODOS */}
+            <section className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-slate-900/5">
+              <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Icon name="check" className="w-4 h-4 text-emerald-500"/> Att göra
+                  </h3>
+                  <span className="text-xs font-semibold bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{todos.filter(t=>!t.done).length} kvar</span>
               </div>
-              <div className="h-64 w-full">
-                <HistoryChart 
-                   measurements={chartData} 
-                   minRef={data.minRef} maxRef={data.maxRef} unit={data.unit}
-                   displayMin={data.displayMin} displayMax={data.displayMax}
-                />
+              
+              <ActionList 
+                todos={todos}
+                onToggle={(id, done) => run('toggle', () => onToggleTodo(id, done))}
+                onDelete={handleActionListDelete}
+                onAdd={handleActionListAdd}
+                availableMarkers={allMarkers}
+                onUpdateTags={onUpdateTags}
+                onUpdateTask={onUpdateTodo} // Pass the task/date update handler
+                variant="minimal"
+              />
+            </section>
+
+            {/* TIMELINE */}
+            <section>
+              <div className="flex items-center justify-between mb-6 px-2">
+                <h3 className="text-lg font-bold text-slate-900">Händelselogg</h3>
               </div>
-           </section>
+
+              <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-10">
+                
+                {isAddingNote && (
+                    <div className="relative pl-8 animate-in fade-in slide-in-from-top-2">
+                      <div className="absolute -left-[9px] top-4 w-4 h-4 rounded-full bg-slate-900 ring-4 ring-slate-50" />
+                      <div className="bg-white p-4 rounded-2xl shadow-lg ring-1 ring-slate-900/10">
+                          <textarea 
+                            autoFocus
+                            className="w-full text-sm bg-slate-50 p-3 rounded-xl outline-none focus:ring-2 focus:ring-slate-900 mb-3"
+                            rows={3}
+                            placeholder="Vad har hänt? (Sömn, stress, kost...)"
+                            value={newNoteText}
+                            onChange={e => setNewNoteText(e.target.value)}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => setIsAddingNote(false)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Avbryt</button>
+                            <button onClick={handleSaveNote} className="px-4 py-2 text-xs font-bold bg-slate-900 text-white rounded-lg">Spara</button>
+                          </div>
+                      </div>
+                    </div>
+                )}
+
+                {timeline.length === 0 && !isAddingNote && (
+                    <div className="pl-8 text-slate-400 text-sm italic py-4">Inget loggat än.</div>
+                )}
+
+                {timeline.map((item) => {
+                    const isMeas = item.type === 'measurement';
+                    const dataItem = item.data;
+                    
+                    return (
+                      <div key={`${item.type}-${item.id}`} className="relative pl-8 group">
+                          <div className={cx(
+                            "absolute -left-[9px] top-1.5 w-4 h-4 rounded-full border-2 border-white ring-1 shadow-sm z-10",
+                            isMeas ? "bg-slate-900 ring-slate-200" : "bg-amber-100 ring-amber-200"
+                          )} />
+                          
+                          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                            <div className="flex-1">
+                                <div className="text-xs font-bold text-slate-400 mb-1.5 flex items-center gap-2">
+                                  {formatDateTime(item.date)}
+                                  {!isMeas && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-bold uppercase">Anteckning</span>}
+                                </div>
+                                
+                                {isMeas ? (
+                                  <div className="bg-white p-4 rounded-2xl shadow-sm ring-1 ring-slate-900/5 hover:ring-slate-900/20 transition-all">
+                                      <div className="flex justify-between items-start">
+                                        <div>
+                                            <div className="text-lg font-bold text-slate-900">
+                                              {formatNumber(dataItem.value)} 
+                                              <span className="text-sm font-normal text-slate-500 ml-1">{data.unit}</span>
+                                            </div>
+                                            {dataItem.note && (
+                                              <div className="mt-2 text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-lg italic border border-slate-100">
+                                                  "{dataItem.note}"
+                                              </div>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col gap-2">
+                                            {(() => {
+                                              const b = getRangeBadge(dataItem.value, data.minRef, data.maxRef, data.isIgnored);
+                                              return <span className={cx("px-2 py-0.5 rounded text-[10px] font-bold uppercase text-center", b.bg, b.text)}>{b.label}</span>;
+                                            })()}
+                                        </div>
+                                      </div>
+                                  </div>
+                                ) : (
+                                  <div className="bg-amber-50/40 p-4 rounded-2xl border border-amber-100/60 hover:bg-amber-50/80 transition-all">
+                                      <p className="text-slate-800 text-sm whitespace-pre-wrap leading-relaxed">{dataItem.note}</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Quick Actions (Hover) */}
+                            <div className="flex sm:flex-col gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                {isMeas ? (
+                                  <button 
+                                    onClick={() => { setEditingMeasId(dataItem.id); setEditMeasValue(String(dataItem.value)); setEditMeasDate(dataItem.date.split('T')[0]); }}
+                                    className="p-2 text-slate-300 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                                  >
+                                      <Icon name="edit" className="w-4 h-4" />
+                                  </button>
+                                ) : (
+                                  <button 
+                                    onClick={() => setConfirmDelete({type:'note', id:dataItem.id, desc:'anteckning'})}
+                                    className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg"
+                                  >
+                                      <Icon name="trash" className="w-4 h-4" />
+                                  </button>
+                                )}
+                                {isMeas && onDeleteMeasurement && (
+                                  <button 
+                                    onClick={() => setConfirmDelete({type:'meas', id:dataItem.id, desc:`${dataItem.value} ${data.unit}`})}
+                                    className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg"
+                                  >
+                                      <Icon name="trash" className="w-4 h-4" />
+                                  </button>
+                                )}
+                            </div>
+                          </div>
+                      </div>
+                    );
+                })}
+              </div>
+            </section>
+          </div>
+        ) : (
+          /* INFO TAB (Encyclopedia) */
+          <div className="space-y-6 animate-in fade-in slide-in-from-right-2">
+             {!hasInfo ? (
+               <div className="text-center py-20 bg-white rounded-3xl shadow-sm ring-1 ring-slate-900/5">
+                  <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+                     🧬
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-900">Ingen utökad info tillgänglig</h3>
+                  <p className="text-slate-500 text-sm mt-2 max-w-sm mx-auto">
+                     Vi har ingen detaljerad information om denna markör i databasen just nu.
+                  </p>
+               </div>
+             ) : (
+               <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm ring-1 ring-slate-900/5 space-y-8">
+                  {/* General Description */}
+                  {data.description && (
+                    <InfoCard title="Om markören" content={data.description} type="general" />
+                  )}
+
+                  <div className="grid md:grid-cols-2 gap-6">
+                     {/* Low Levels */}
+                     <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-100">
+                           <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                           <h3 className="text-base font-bold text-slate-900">Låga nivåer</h3>
+                        </div>
+                        {data.riskLow ? (
+                           <InfoCard title="Symptom & Risker" content={data.riskLow} type="low" />
+                        ) : (
+                           <p className="text-xs text-slate-400 italic">Ingen information om risker vid låga värden.</p>
+                        )}
+                        {data.recommendationLow && (
+                           <InfoCard title="Rekommendationer" content={data.recommendationLow} type="low" />
+                        )}
+                     </div>
+
+                     {/* High Levels */}
+                     <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-100">
+                           <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                           <h3 className="text-base font-bold text-slate-900">Höga nivåer</h3>
+                        </div>
+                        {data.riskHigh ? (
+                           <InfoCard title="Symptom & Risker" content={data.riskHigh} type="high" />
+                        ) : (
+                           <p className="text-xs text-slate-400 italic">Ingen information om risker vid höga värden.</p>
+                        )}
+                        {data.recommendationHigh && (
+                           <InfoCard title="Rekommendationer" content={data.recommendationHigh} type="high" />
+                        )}
+                     </div>
+                  </div>
+                  
+                  <div className="bg-slate-50 p-4 rounded-xl text-[11px] text-slate-500 italic border border-slate-100 mt-4 text-center">
+                     Denna information är generell och ersätter inte medicinsk rådgivning. Referensintervall och rekommendationer kan variera.
+                  </div>
+               </div>
+             )}
+          </div>
         )}
 
-        {/* 4. ACTIONS & TODOS */}
-        <section className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-slate-900/5">
-           <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                 <Icon name="check" className="w-4 h-4 text-emerald-500"/> Att göra
-              </h3>
-              <span className="text-xs font-semibold bg-slate-100 text-slate-500 px-2 py-1 rounded-full">{todos.filter(t=>!t.done).length} kvar</span>
-           </div>
-           
-           <ActionList 
-             todos={todos}
-             onToggle={(id, done) => run('toggle', () => onToggleTodo(id, done))}
-             onDelete={handleActionListDelete}
-             onAdd={handleActionListAdd}
-             availableMarkers={allMarkers}
-             onUpdateTags={onUpdateTags}
-             onUpdateTask={onUpdateTodo} // Pass the task/date update handler
-             variant="minimal"
-           />
-        </section>
-
-        {/* 5. TIMELINE */}
-        <section>
-          <div className="flex items-center justify-between mb-6 px-2">
-            <h3 className="text-lg font-bold text-slate-900">Händelselogg</h3>
-          </div>
-
-          <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-10">
-             
-             {isAddingNote && (
-                <div className="relative pl-8 animate-in fade-in slide-in-from-top-2">
-                   <div className="absolute -left-[9px] top-4 w-4 h-4 rounded-full bg-slate-900 ring-4 ring-slate-50" />
-                   <div className="bg-white p-4 rounded-2xl shadow-lg ring-1 ring-slate-900/10">
-                      <textarea 
-                         autoFocus
-                         className="w-full text-sm bg-slate-50 p-3 rounded-xl outline-none focus:ring-2 focus:ring-slate-900 mb-3"
-                         rows={3}
-                         placeholder="Vad har hänt? (Sömn, stress, kost...)"
-                         value={newNoteText}
-                         onChange={e => setNewNoteText(e.target.value)}
-                      />
-                      <div className="flex justify-end gap-2">
-                         <button onClick={() => setIsAddingNote(false)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Avbryt</button>
-                         <button onClick={handleSaveNote} className="px-4 py-2 text-xs font-bold bg-slate-900 text-white rounded-lg">Spara</button>
-                      </div>
-                   </div>
-                </div>
-             )}
-
-             {timeline.length === 0 && !isAddingNote && (
-                <div className="pl-8 text-slate-400 text-sm italic py-4">Inget loggat än.</div>
-             )}
-
-             {timeline.map((item) => {
-                const isMeas = item.type === 'measurement';
-                const dataItem = item.data;
-                
-                return (
-                   <div key={`${item.type}-${item.id}`} className="relative pl-8 group">
-                      <div className={cx(
-                         "absolute -left-[9px] top-1.5 w-4 h-4 rounded-full border-2 border-white ring-1 shadow-sm z-10",
-                         isMeas ? "bg-slate-900 ring-slate-200" : "bg-amber-100 ring-amber-200"
-                      )} />
-                      
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                         <div className="flex-1">
-                            <div className="text-xs font-bold text-slate-400 mb-1.5 flex items-center gap-2">
-                               {formatDateTime(item.date)}
-                               {!isMeas && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-bold uppercase">Anteckning</span>}
-                            </div>
-                            
-                            {isMeas ? (
-                               <div className="bg-white p-4 rounded-2xl shadow-sm ring-1 ring-slate-900/5 hover:ring-slate-900/20 transition-all">
-                                  <div className="flex justify-between items-start">
-                                     <div>
-                                        <div className="text-lg font-bold text-slate-900">
-                                           {formatNumber(dataItem.value)} 
-                                           <span className="text-sm font-normal text-slate-500 ml-1">{data.unit}</span>
-                                        </div>
-                                        {dataItem.note && (
-                                           <div className="mt-2 text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-lg italic border border-slate-100">
-                                              "{dataItem.note}"
-                                           </div>
-                                        )}
-                                     </div>
-                                     <div className="flex flex-col gap-2">
-                                        {(() => {
-                                           const b = getRangeBadge(dataItem.value, data.minRef, data.maxRef, data.isIgnored);
-                                           return <span className={cx("px-2 py-0.5 rounded text-[10px] font-bold uppercase text-center", b.bg, b.text)}>{b.label}</span>;
-                                        })()}
-                                     </div>
-                                  </div>
-                               </div>
-                            ) : (
-                               <div className="bg-amber-50/40 p-4 rounded-2xl border border-amber-100/60 hover:bg-amber-50/80 transition-all">
-                                  <p className="text-slate-800 text-sm whitespace-pre-wrap leading-relaxed">{dataItem.note}</p>
-                                </div>
-                            )}
-                         </div>
-
-                         {/* Quick Actions (Hover) */}
-                         <div className="flex sm:flex-col gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                            {isMeas ? (
-                               <button 
-                                 onClick={() => { setEditingMeasId(dataItem.id); setEditMeasValue(String(dataItem.value)); setEditMeasDate(dataItem.date.split('T')[0]); }}
-                                 className="p-2 text-slate-300 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
-                               >
-                                  <Icon name="edit" className="w-4 h-4" />
-                               </button>
-                            ) : (
-                               <button 
-                                 onClick={() => setConfirmDelete({type:'note', id:dataItem.id, desc:'anteckning'})}
-                                 className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg"
-                               >
-                                  <Icon name="trash" className="w-4 h-4" />
-                               </button>
-                            )}
-                            {isMeas && onDeleteMeasurement && (
-                               <button 
-                                 onClick={() => setConfirmDelete({type:'meas', id:dataItem.id, desc:`${dataItem.value} ${data.unit}`})}
-                                 className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg"
-                               >
-                                  <Icon name="trash" className="w-4 h-4" />
-                               </button>
-                            )}
-                         </div>
-                      </div>
-                   </div>
-                );
-             })}
-          </div>
-        </section>
       </div>
 
-      {/* 6. FAB */}
-      <div className="fixed bottom-6 right-6 flex flex-col gap-4 z-50">
-         <button 
-            onClick={() => setIsAddingNote(prev => !prev)}
-            className="w-12 h-12 rounded-full bg-white text-slate-600 shadow-lg ring-1 ring-slate-900/5 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
-            title="Ny anteckning"
-         >
-            <Icon name="note" className="w-5 h-5" />
-         </button>
-         
-         <button 
-            onClick={() => onAddMeasurement(data.id)}
-            className="w-14 h-14 rounded-full bg-slate-900 text-white shadow-xl shadow-slate-900/20 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
-            title="Ny mätning"
-         >
-            <Icon name="plus" className="w-6 h-6" />
-         </button>
-      </div>
+      {/* 6. FAB (Only show on Data Tab) */}
+      {activeTab === 'data' && (
+        <div className="fixed bottom-6 right-6 flex flex-col gap-4 z-50">
+          <button 
+              onClick={() => setIsAddingNote(prev => !prev)}
+              className="w-12 h-12 rounded-full bg-white text-slate-600 shadow-lg ring-1 ring-slate-900/5 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+              title="Ny anteckning"
+          >
+              <Icon name="note" className="w-5 h-5" />
+          </button>
+          
+          <button 
+              onClick={() => onAddMeasurement(data.id)}
+              className="w-14 h-14 rounded-full bg-slate-900 text-white shadow-xl shadow-slate-900/20 flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+              title="Ny mätning"
+          >
+              <Icon name="plus" className="w-6 h-6" />
+          </button>
+        </div>
+      )}
 
       {/* MODALS */}
       {editingMeasId && (
