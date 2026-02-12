@@ -218,7 +218,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
   const handleNavClick =
     (id: string) =>
     (e: React.MouseEvent<HTMLAnchorElement>) => {
-      // Låt användaren öppna i ny flik etc. om de vill
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 
       e.preventDefault();
@@ -256,7 +255,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
       {
         icon: "shield" as const,
         title: "Privat, säkert och under din kontroll",
-        desc: "Säker inloggning och möjlighet att exportera din data när du vill.",
+        desc: "Säker inloggning och möjlighet att exportera och radera din data när du vill.",
       },
     ],
     []
@@ -369,7 +368,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
               </a>
             </nav>
             <div className="pt-4 border-t border-slate-100 flex flex-col gap-3">
-              <button onClick={onLogin} className="w-full py-2.5 text-center font-bold text-slate-700 bg-slate-50 rounded-xl">
+              <button
+                onClick={onLogin}
+                className="w-full py-2.5 text-center font-bold text-slate-700 bg-slate-50 rounded-xl"
+              >
                 Logga in
               </button>
               <button onClick={onStart} className="w-full py-2.5 text-center font-bold text-white bg-slate-900 rounded-xl">
@@ -390,16 +392,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             <div>
               <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-slate-900/10 px-3 py-1.5 text-xs font-semibold text-slate-700">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                För dig som tar prover regelbundet • översikt på 30 sek
+                Bloodwork that works • från provsvar till plan
               </div>
 
               <h1 className="mt-4 text-4xl sm:text-5xl font-display font-extrabold tracking-tight text-slate-900 leading-[1.05]">
-                Få stenkoll på dina blodvärden – <span className="text-slate-600">utan kalkylark.</span>
+                Ta kontroll över dina blodvärden –{" "}
+                <span className="text-slate-600">bygg förutsättningar för mer energi, fokus och långsiktig hälsa.</span>
               </h1>
 
               <p className="mt-4 text-slate-600 text-lg max-w-xl">
-                Samla dina provsvar på ett ställe, se vad som sticker ut direkt och följ trender över tid.
-                Med anteckningar och mål per markör blir uppföljning något du faktiskt håller i.
+                Samla dina blodprov och provsvar på ett ställe, följ biomarkörer över tid och se vad som faktiskt förändras
+                mellan provtagningar. Med mål och anteckningar per markör blir uppföljning något du fortsätter med – inte
+                något du börjar om med.
               </p>
 
               <div className="mt-6 flex flex-col sm:flex-row gap-3">
@@ -422,7 +426,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
 
               <div className="mt-6 grid sm:grid-cols-3 gap-3 max-w-xl">
                 {[
-                  { t: "Fokusområden", d: "Se var det “tar” mest" },
+                  { t: "Fokusområden", d: "Se var det tar mest" },
                   { t: "Status & filter", d: "Avvikande / inom ref" },
                   { t: "Mål & anteckningar", d: "Bygg din uppföljning" },
                 ].map((x) => (
@@ -637,6 +641,84 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
           </div>
         </section>
 
+        {/* Privacy / Data / Terms (lower down) */}
+        <section id="integritet" className="max-w-6xl mx-auto px-5 pb-14 scroll-mt-20">
+          <div className="rounded-[2.5rem] bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-8 md:p-10 overflow-hidden relative">
+            <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full bg-gradient-to-br from-emerald-200/45 to-cyan-200/30 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-gradient-to-tr from-indigo-200/35 to-violet-200/30 blur-3xl" />
+
+            <div className="relative">
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl sm:text-3xl font-display font-extrabold tracking-tight text-slate-900">
+                    Integritet & data
+                  </h2>
+                  <p className="mt-2 text-slate-600 max-w-2xl">
+                    Hälsodata är personligt. Därför är Bloodwork.se byggt för tydlighet, kontroll och förtroende – så att du
+                    kan fokusera på din uppföljning.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-8 grid md:grid-cols-3 gap-4">
+                <div className="rounded-[2rem] bg-white ring-1 ring-slate-900/5 p-6 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-2xl bg-slate-50 ring-1 ring-slate-900/10 flex items-center justify-center">
+                      <Shield className="w-5 h-5 text-slate-700" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-base font-bold text-slate-900 tracking-tight">Din data är din</div>
+                      <div className="mt-2 text-sm text-slate-600 leading-relaxed">
+                        Du kan exportera dina värden och behålla översikten på dina villkor. När du vill kan du även rensa
+                        eller ta bort data kopplat till ditt konto.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="villkor" className="rounded-[2rem] bg-white ring-1 ring-slate-900/5 p-6 shadow-sm scroll-mt-20">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-2xl bg-slate-50 ring-1 ring-slate-900/10 flex items-center justify-center">
+                      <Check className="w-5 h-5 text-slate-700" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-base font-bold text-slate-900 tracking-tight">Villkor i korthet</div>
+                      <div className="mt-2 text-sm text-slate-600 leading-relaxed">
+                        Bloodwork.se är ett uppföljningsverktyg och ersätter inte vården. Vi visar status mot referensintervall
+                        och hjälper dig strukturera historik, mål och anteckningar.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="kontakt" className="rounded-[2rem] bg-white ring-1 ring-slate-900/5 p-6 shadow-sm scroll-mt-20">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-2xl bg-slate-50 ring-1 ring-slate-900/10 flex items-center justify-center">
+                      <Spark className="w-5 h-5 text-slate-700" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-base font-bold text-slate-900 tracking-tight">Kontakt</div>
+                      <div className="mt-2 text-sm text-slate-600 leading-relaxed">
+                        Har du frågor om konto, data eller funktioner? Hör av dig så hjälper vi dig snabbt.
+                      </div>
+                      <div className="mt-3 text-sm font-semibold text-slate-900">
+                        support@bloodwork.se
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Svarstid normalt inom 24 timmar (vardagar).
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 text-xs text-slate-500">
+                Bloodwork.se är ett uppföljningsverktyg – inte medicinsk rådgivning.
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Final CTA */}
         <section className="max-w-6xl mx-auto px-5 pb-16">
           <div className="rounded-[2.5rem] bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 shadow-sm p-8 md:p-10 overflow-hidden relative">
@@ -689,14 +771,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
         <div className="max-w-6xl mx-auto px-5 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="text-sm text-slate-500">© 2026 Bloodwork.se. Alla rättigheter förbehållna.</div>
           <div className="flex gap-6 text-sm font-medium text-slate-600">
-            <a href="#faq" onClick={handleNavClick("faq")} className="hover:text-slate-900">
+            <a href="#villkor" onClick={handleNavClick("villkor")} className="hover:text-slate-900">
               Villkor
             </a>
-            <a href="#faq" onClick={handleNavClick("faq")} className="hover:text-slate-900">
+            <a href="#integritet" onClick={handleNavClick("integritet")} className="hover:text-slate-900">
               Integritet
             </a>
-            <a href="#top" onClick={handleNavClick("top")} className="hover:text-slate-900">
-              Till toppen
+            <a href="#kontakt" onClick={handleNavClick("kontakt")} className="hover:text-slate-900">
+              Kontakt
             </a>
           </div>
         </div>
