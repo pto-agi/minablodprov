@@ -118,3 +118,10 @@ export interface JournalEntry {
   tags: string[];
   createdAt: string;
 }
+
+export interface StatsHistoryEntry {
+  id: string;
+  log_date: string;
+  score: number;
+  total_markers: number;
+}

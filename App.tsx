@@ -9,6 +9,7 @@ import {
   MeasurementTodo,
   JournalPlan,
   JournalGoal,
+  StatsHistoryEntry,
 } from './types';
 import { getStatus, safeFloat, formatNumber } from './utils';
 import BloodMarkerCard from './components/BloodMarkerCard';
@@ -275,6 +276,9 @@ const App: React.FC = () => {
   const [journalPlans, setJournalPlans] = useState<JournalPlan[]>([]);
   // NEW: Store user specific settings like ignored markers
   const [ignoredMarkers, setIgnoredMarkers] = useState<Set<string>>(new Set());
+  
+  // NEW: Stats History
+  const [statsHistory, setStatsHistory] = useState<StatsHistoryEntry[]>([]);
 
   const [loadingData, setLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -331,7 +335,17 @@ const App: React.FC = () => {
     const missing: string[] = [];
 
     try {
-      const [markersRes, measurementsRes, notesRes, todosRes, journalRes, journalMarkersRes, settingsRes, goalsRes] = await Promise.all([
+      const [
+          markersRes, 
+          measurementsRes, 
+          notesRes, 
+          todosRes, 
+          journalRes, 
+          journalMarkersRes, 
+          settingsRes, 
+          goalsRes,
+          historyRes // NEW
+      ] = await Promise.all([
         supabase.from('blood_markers').select('*'),
         supabase.from('measurements').select('*').eq('user_id', userId).order('measured_at', { ascending: false }),
         supabase.from('marker_notes').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
@@ -339,7 +353,8 @@ const App: React.FC = () => {
         supabase.from('journal_entries').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('journal_entry_markers').select('*'), 
         supabase.from('user_marker_settings').select('*').eq('user_id', userId),
-        supabase.from('journal_goals').select('*') // NEW
+        supabase.from('journal_goals').select('*'),
+        supabase.from('user_stats_history').select('*').eq('user_id', userId).order('log_date', { ascending: true }) // NEW
       ]);
 
       if (markersRes.error) throw markersRes.error;
@@ -350,6 +365,7 @@ const App: React.FC = () => {
       const journalOk = !journalRes.error;
       const goalsOk = !goalsRes.error;
       const settingsOk = !settingsRes.error;
+      const historyOk = !historyRes.error;
 
       setDbCapabilities({ markerNotes: notesOk, todos: todosOk, journal: journalOk });
 
@@ -357,6 +373,7 @@ const App: React.FC = () => {
       if (todosRes.error) missing.push(`measurement_todos (${todosRes.error.message})`);
       // Journal table might be missing entirely if migration not run, suppress error if so for now but track it
       if (journalRes.error) console.warn("Journal table missing:", journalRes.error.message);
+      if (historyRes.error) console.warn("History table missing:", historyRes.error.message);
 
       const markersData = markersRes.data ?? [];
       const measureData = measurementsRes.data ?? [];
@@ -366,6 +383,7 @@ const App: React.FC = () => {
       const journalMarkersData = journalMarkersRes.data ?? [];
       const settingsData = settingsOk ? (settingsRes.data ?? []) : [];
       const goalsData = goalsOk ? (goalsRes.data ?? []) : [];
+      const historyData = historyOk ? (historyRes.data ?? []) : [];
 
       const mappedMarkers: BloodMarker[] = markersData.map((m: any) => {
         const minRef = safeFloat(m.min_ref);
@@ -477,6 +495,7 @@ const App: React.FC = () => {
       setTodos(mappedTodos);
       setJournalPlans(mappedPlans);
       setIgnoredMarkers(ignored);
+      setStatsHistory(historyData); // Set History
 
       if (missing.length) {
         setDataError(
@@ -582,10 +601,6 @@ const App: React.FC = () => {
     let normalCount = 0;
 
     dashboardData.forEach((marker) => {
-      // If ignored, treat as "normal" for the big percentage score, OR simply exclude from attention list.
-      // Current requirement: "hamnar längst ner bland att-åtgärda". 
-      // This implies it IS in attention list, but sorted last.
-      
       if (marker.status !== 'normal') {
         attentionMarkers.push(marker);
       } else {
@@ -618,14 +633,12 @@ const App: React.FC = () => {
 
     optimizedEvents.sort((a, b) => ts(b.goodDate) - ts(a.goodDate));
     
-    // Updated sorting: Ignored markers go to the BOTTOM
     attentionMarkers.sort((a, b) => {
         if (a.isIgnored !== b.isIgnored) return a.isIgnored ? 1 : -1;
         return a.name.localeCompare(b.name);
     });
 
     // Calculate Coverage
-    // How many attention markers have at least one active todo linked to them?
     const coveredAttentionCount = attentionMarkers.filter(marker => 
         activeTodos.some(todo => todo.markerIds.includes(marker.id))
     ).length;
@@ -694,10 +707,6 @@ const App: React.FC = () => {
     }
 
     const entries = Array.from(groups.entries()).map(([category, markers]) => {
-      // Attention count logic: exclude ignored from the red badge count maybe? 
-      // Requirement said "ignored markers... in attention list". 
-      // But usually "needs attention" implies action. 
-      // Let's count them but visual distinction handles the rest.
       const attentionCount = markers.filter((m) => m.status !== 'normal' && !m.isIgnored).length;
       return { category, markers, attentionCount };
     });
@@ -708,6 +717,48 @@ const App: React.FC = () => {
 
     return entries;
   }, [filteredDashboardData]);
+
+  // --- AUTOMATIC HISTORY UPDATE (Sync current stats to DB) ---
+  useEffect(() => {
+    if (!session?.user || stats.totalCount === 0 || loadingData) return;
+
+    const updateHistory = async () => {
+       const currentScore = Math.round((stats.normalCount / stats.totalCount) * 100);
+       const today = new Date();
+       const logDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+
+       // Check if we need to update:
+       // 1. Is there an entry for this month?
+       // 2. Is the score different?
+       const existingEntry = statsHistory.find(h => h.log_date === logDate);
+       
+       if (!existingEntry || existingEntry.score !== currentScore || existingEntry.total_markers !== stats.totalCount) {
+          try {
+             const { error } = await supabase.from('user_stats_history').upsert({
+                user_id: session.user.id,
+                log_date: logDate,
+                score: currentScore,
+                total_markers: stats.totalCount
+             }, { onConflict: 'user_id, log_date' });
+
+             if (error) {
+                // If table doesn't exist yet, suppress error silently or log warn
+                if (error.code !== '42P01') console.warn("Failed to sync stats history", error);
+             } else {
+                 // Refresh history locally without full refetch if possible, or just refetch
+                 // Simple refetch of history table
+                 const { data } = await supabase.from('user_stats_history').select('*').eq('user_id', session.user.id).order('log_date', { ascending: true });
+                 if(data) setStatsHistory(data);
+             }
+          } catch(e) {
+             console.warn(e);
+          }
+       }
+    };
+
+    updateHistory();
+  }, [session?.user, stats.totalCount, stats.normalCount, statsHistory, loadingData]);
+
 
   // Notification Logic for Optimized Events
   const totalOptimizedCount = stats.optimizedEvents.length;
@@ -1240,6 +1291,7 @@ const App: React.FC = () => {
       setSelectedMarkerId(null);
       setShowAuth(false);
       setSeenOptimizedCount(0);
+      setStatsHistory([]); // Clear History
       setDbCapabilities({ markerNotes: true, todos: true, journal: true });
       setToast(null);
     }
@@ -1466,6 +1518,7 @@ const App: React.FC = () => {
                   attentionMarkers={stats.attentionMarkers}
                   optimizedCount={stats.optimizedEvents.length}
                   coveredAttentionCount={stats.coveredAttentionCount}
+                  history={statsHistory} // NEW
                   onOptimizedClick={handleOpenOptimizedEvents}
                   onAttentionClick={handleAttentionClick}
                   newOptimizedCount={newOptimizedCount}
