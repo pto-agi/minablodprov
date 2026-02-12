@@ -39,21 +39,10 @@ const TagModal: React.FC<{
 }> = ({ isOpen, onClose, todo, markers, onSave }) => {
   const [selected, setSelected] = useState<string[]>(todo.markerIds || []);
   const [search, setSearch] = useState('');
-  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if(isOpen) setSelected(todo.markerIds || []);
   }, [isOpen, todo]);
-
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    if (isOpen) document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -83,58 +72,76 @@ const TagModal: React.FC<{
   });
 
   return (
-    <div className="absolute right-0 top-8 z-50 w-64 bg-white rounded-xl shadow-xl ring-1 ring-slate-900/10 animate-in fade-in zoom-in-95 duration-200" ref={modalRef}>
-      <div className="p-3 border-b border-slate-100">
-        <input 
-          autoFocus
-          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-indigo-500 outline-none"
-          placeholder="Sök markör..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        {!search && (
-           <div className="text-[10px] text-slate-400 mt-2 px-1">
-              Visar avvikelser. Sök för att hitta andra.
-           </div>
-        )}
-      </div>
-      <div className="max-h-48 overflow-y-auto p-1">
-        {filteredMarkers.map(m => {
-          const isSelected = selected.includes(m.id);
-          const status = (m as any).status;
-          
-          return (
-            <button
-              key={m.id}
-              onClick={() => toggle(m.id)}
-              className={cx(
-                "w-full text-left px-3 py-2 text-xs rounded-lg flex justify-between items-center transition-colors group",
-                isSelected ? "bg-indigo-50 text-indigo-700 font-bold" : "hover:bg-slate-50 text-slate-700"
-              )}
-            >
-              <div className="flex items-center gap-2">
-                 <span>{m.name}</span>
-                 {status === 'high' && <span className="w-1.5 h-1.5 rounded-full bg-rose-500" title="Högt" />}
-                 {status === 'low' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Lågt" />}
-              </div>
-              {isSelected && <span className="text-indigo-500">✓</span>}
-            </button>
-          )
-        })}
-        {filteredMarkers.length === 0 && (
-          <div className="p-4 text-center">
-             <div className="text-xs text-slate-500 font-medium">Inga markörer hittades</div>
-             {!search && <div className="text-[10px] text-slate-400 mt-1">Sök för att lägga till markörer inom referensintervallet.</div>}
-          </div>
-        )}
-      </div>
-      <div className="p-2 border-t border-slate-100 bg-slate-50/50 rounded-b-xl flex justify-end">
-        <button 
-          onClick={() => { onSave(selected); onClose(); }}
-          className="px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800"
-        >
-          Klar
-        </button>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" 
+        onClick={onClose} 
+      />
+      
+      {/* Modal Content */}
+      <div className="relative w-full max-w-xs bg-white rounded-2xl shadow-2xl ring-1 ring-slate-900/10 flex flex-col max-h-[60vh] animate-in zoom-in-95 duration-200">
+        <div className="p-4 border-b border-slate-100">
+          <h4 className="text-sm font-bold text-slate-900 mb-2">Koppla markörer</h4>
+          <input 
+            autoFocus
+            className="w-full text-sm bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow"
+            placeholder="Sök markör..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          {!search && (
+             <div className="text-[10px] text-slate-400 mt-2 px-1">
+                Visar valda & avvikelser. Sök för att hitta andra.
+             </div>
+          )}
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {filteredMarkers.map(m => {
+            const isSelected = selected.includes(m.id);
+            const status = (m as any).status;
+            
+            return (
+              <button
+                key={m.id}
+                onClick={() => toggle(m.id)}
+                className={cx(
+                  "w-full text-left px-3 py-2.5 text-sm rounded-xl flex justify-between items-center transition-colors group",
+                  isSelected ? "bg-indigo-50 text-indigo-900 font-bold" : "hover:bg-slate-50 text-slate-700 font-medium"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                   <span>{m.name}</span>
+                   {status === 'high' && <span className="w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white" title="Högt" />}
+                   {status === 'low' && <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white" title="Lågt" />}
+                </div>
+                {isSelected && <span className="text-indigo-600 font-bold">✓</span>}
+              </button>
+            )
+          })}
+          {filteredMarkers.length === 0 && (
+            <div className="p-6 text-center">
+               <div className="text-xs text-slate-500 font-medium">Inga markörer hittades</div>
+               {!search && <div className="text-[10px] text-slate-400 mt-1">Sök för att lägga till markörer inom referensintervallet.</div>}
+            </div>
+          )}
+        </div>
+        
+        <div className="p-3 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl flex justify-end gap-2">
+          <button 
+            onClick={onClose}
+            className="px-4 py-2 text-slate-500 text-xs font-bold hover:bg-slate-100 rounded-lg"
+          >
+            Avbryt
+          </button>
+          <button 
+            onClick={() => { onSave(selected); onClose(); }}
+            className="px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 shadow-sm"
+          >
+            Klar
+          </button>
+        </div>
       </div>
     </div>
   );

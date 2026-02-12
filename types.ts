@@ -89,6 +89,7 @@ export interface MarkerHistory extends BloodMarker {
   latestMeasurement: Measurement | undefined;
   status: HealthStatus;
   isIgnored?: boolean; // New: If true, user wants to ignore this marker's deviation
+  hasActivePlan?: boolean; // New: If true, marker is linked to the currently active plan
 }
 
 export interface OptimizationEvent {

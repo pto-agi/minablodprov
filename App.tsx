@@ -550,6 +550,9 @@ const App: React.FC = () => {
   const dashboardData: MarkerHistory[] = useMemo(() => {
     if (bloodMarkers.length === 0) return [];
 
+    // Get active plan IDs
+    const activePlanIds = journalPlans.length > 0 ? journalPlans[0].linkedMarkerIds : [];
+
     const out: MarkerHistory[] = [];
 
     for (const marker of bloodMarkers) {
@@ -567,12 +570,13 @@ const App: React.FC = () => {
         notes: markerNotesList,
         latestMeasurement: latest,
         status: latest ? getStatus(latest.value, marker.minRef, marker.maxRef) : 'normal',
-        isIgnored: ignoredMarkers.has(marker.id)
+        isIgnored: ignoredMarkers.has(marker.id),
+        hasActivePlan: activePlanIds.includes(marker.id) // Check linkage
       });
     }
 
     return out;
-  }, [bloodMarkers, measurementsByMarkerId, notesByMarkerId, ignoredMarkers]);
+  }, [bloodMarkers, measurementsByMarkerId, notesByMarkerId, ignoredMarkers, journalPlans]);
 
   const activeTodos = useMemo(() => todos.filter(t => !t.done), [todos]);
 
@@ -1247,7 +1251,7 @@ const App: React.FC = () => {
                         marker_id: g.markerId,
                         direction: g.direction,
                         target_value: g.targetValue,
-                        target_value_upper: g.targetValueUpper // Fixed from g.target_value_upper
+                        target_value_upper: g.targetValueUpper
                     }))
                 );
             }
@@ -1501,7 +1505,7 @@ const App: React.FC = () => {
            <ActivePlanView 
               plan={activePlan} 
               allMarkers={dashboardData} 
-              todos={todos.filter(t => t.linkedJournalId === activePlan?.id && !t.done)} // Only show pending tasks
+              todos={todos.filter(t => t.linkedJournalId === activePlan?.id)} // Show all tasks (including done)
               onEdit={() => setEditingPlan(activePlan)}
               onCreate={() => setEditingPlan('new')}
               onViewArchive={() => setView('archive')}
