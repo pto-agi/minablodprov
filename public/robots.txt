@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Exempel på att blockera specifika delar (om det behövs i framtiden):
+# Disallow: /account
+# Disallow: /private
+
+# Sitemap (om du har en):
+# Sitemap: https://minablodprov.se/sitemap.xml
