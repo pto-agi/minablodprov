@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import TermsModal from './TermsModal';
+import { Logo } from './Logo';
 
 const Footer: React.FC = () => {
   const [isTermsOpen, setIsTermsOpen] = useState(false);
@@ -11,9 +12,7 @@ const Footer: React.FC = () => {
         <div className="max-w-6xl mx-auto px-5 py-8 flex flex-col md:flex-row justify-between items-center gap-4">
           
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-slate-200 text-slate-500 flex items-center justify-center text-[10px] font-bold">
-              MB
-            </div>
+            <Logo variant="icon" className="w-6 h-6 text-slate-400" />
             <span className="text-xs font-medium text-slate-500">
               © 2026 minablodprov.se
             </span>

@@ -1,5 +1,7 @@
+
 import React, { useMemo, useState } from 'react';
 import { supabase } from '../supabaseClient';
+import { Logo } from './Logo';
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 
@@ -102,12 +104,11 @@ const Auth: React.FC = () => {
 
       <div className="relative w-full max-w-md">
         {/* Brand */}
-        <div className="text-center mb-6">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 text-white flex items-center justify-center font-display font-extrabold shadow-sm relative">
-            HJ
-            <div className="absolute inset-0 rounded-2xl ring-1 ring-white/15" />
+        <div className="text-center mb-8">
+          <div className="inline-flex justify-center">
+             <Logo variant="icon" className="w-20 h-20 text-slate-900" />
           </div>
-          <h1 className="mt-4 text-3xl font-display font-bold text-slate-900 tracking-tight">HälsoJournalen</h1>
+          <h1 className="mt-4 text-3xl font-display font-bold text-slate-900 tracking-tight">minablodprov.se</h1>
           <p className="mt-2 text-sm text-slate-600">
             Premium spårning av biomarkörer för professionella biohackers.
           </p>

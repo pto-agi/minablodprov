@@ -1,6 +1,7 @@
 
 import React, { useMemo, useState } from "react";
 import TermsModal from "./TermsModal";
+import { Logo } from "./Logo";
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
@@ -298,10 +299,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             className="flex items-center gap-2"
             aria-label="Gå till toppen"
           >
-            <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center font-display font-bold shadow-sm">
-              MB
-            </div>
-            <span className="font-display font-bold text-slate-900 tracking-tight">minablodprov.se</span>
+            {/* Mobile Icon (Increased size h-9 -> h-10) */}
+            <Logo variant="icon" className="h-10 w-10 text-slate-900 md:hidden" />
+            {/* Desktop Full Logo (Increased size h-8 -> h-9) */}
+            <Logo variant="full" className="h-9 w-auto text-slate-900 hidden md:block" />
           </a>
 
           {/* Desktop Nav */}

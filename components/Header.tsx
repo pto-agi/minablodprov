@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { Logo } from './Logo';
 
 export type NavTab = 'dashboard' | 'plan' | 'account';
 
@@ -53,15 +54,16 @@ const Header: React.FC<Props> = ({
         
         {/* LOGO AREA */}
         <div className="flex items-center gap-3 min-w-0 w-24 sm:w-auto">
-          <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-slate-900 to-slate-700 flex items-center justify-center text-white font-extrabold shadow-sm shrink-0 cursor-pointer" onClick={() => onNavigate('dashboard')}>
-            <span className="font-display tracking-tight text-sm">MB</span>
-            <div className="absolute inset-0 rounded-xl ring-1 ring-white/15" />
-          </div>
-          <div className="min-w-0 hidden md:block cursor-pointer" onClick={() => onNavigate('dashboard')}>
-            <h1 className="text-base font-display font-bold text-slate-900 tracking-tight leading-none">
-              minablodprov.se
-            </h1>
-          </div>
+          <button 
+            onClick={() => onNavigate('dashboard')} 
+            className="flex items-center hover:opacity-80 transition-opacity"
+            aria-label="Gå till översikt"
+          >
+            {/* Mobile: Icon only (Increased size h-9 -> h-10) */}
+            <Logo variant="icon" className="h-10 w-10 text-slate-900 md:hidden" />
+            {/* Desktop: Full Logo (Increased size h-8 -> h-9) */}
+            <Logo variant="full" className="h-9 w-auto text-slate-900 hidden md:block" />
+          </button>
         </div>
 
         {/* CENTER NAV - SEGMENTED CONTROL */}
