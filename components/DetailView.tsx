@@ -275,13 +275,21 @@ const DetailView: React.FC<Props> = ({
           )}
 
           <div className="relative z-10 flex flex-col sm:flex-row justify-between gap-8">
-            <div>
-              <div className="flex items-center gap-2 mb-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
                 <span className={cx("inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide ring-1 ring-inset", statusBadge.bg, statusBadge.text, statusBadge.ring)}>
                   <span className={cx("w-2 h-2 rounded-full", statusBadge.dot)} />
                   {statusBadge.label}
                 </span>
-                <span className="text-xs text-slate-400 font-medium">Ref: {data.minRef}-{data.maxRef}</span>
+                
+                {/* Category Tag */}
+                {data.category && (
+                   <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-white/50 text-slate-600 ring-1 ring-inset ring-slate-900/5 backdrop-blur-sm">
+                     {data.category}
+                   </span>
+                )}
+
+                <span className="text-xs text-slate-400 font-medium ml-1">Ref: {data.minRef}-{data.maxRef}</span>
               </div>
               
               <div className="flex items-baseline gap-2">
@@ -302,10 +310,20 @@ const DetailView: React.FC<Props> = ({
                   </span>
                 )}
               </div>
+
+              {/* Full Description */}
+              {data.description && (
+                <div className="mt-6 pt-6 border-t border-slate-900/5">
+                   <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Om markören</h4>
+                   <p className="text-sm text-slate-600 leading-relaxed max-w-xl">
+                     {data.description}
+                   </p>
+                </div>
+              )}
             </div>
 
             {latest && (
-               <div className="w-full sm:w-48 self-end">
+               <div className="w-full sm:w-48 self-start sm:self-end shrink-0">
                   <ReferenceVisualizer 
                      value={latest.value}
                      minRef={data.minRef} maxRef={data.maxRef}

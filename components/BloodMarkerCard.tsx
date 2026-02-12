@@ -180,7 +180,7 @@ const MiniHistorySparkline: React.FC<{
 };
 
 const BloodMarkerCard: React.FC<Props> = ({ data, onClick, onToggleIgnore }) => {
-  const { name, shortName, unit, latestMeasurement, status, minRef, maxRef, goal, measurements, notes, isIgnored } =
+  const { name, shortName, unit, latestMeasurement, status, minRef, maxRef, goal, measurements, notes, isIgnored, description, category } =
     data;
 
   const deltaInfo = useMemo(() => computeDelta(measurements), [measurements]);
@@ -206,9 +206,6 @@ const BloodMarkerCard: React.FC<Props> = ({ data, onClick, onToggleIgnore }) => 
       }
     }
   }
-
-  const hasLatestNote = Boolean(latestMeasurement.note?.trim());
-  const markerNotesCount = notes?.length ?? 0;
 
   // Determine styles based on ignore state
   const containerClasses = isIgnored 
@@ -268,7 +265,14 @@ const BloodMarkerCard: React.FC<Props> = ({ data, onClick, onToggleIgnore }) => 
         <div>
           <div className="flex justify-between items-start">
              <div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{shortName}</span>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{shortName}</span>
+                  {category && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 uppercase tracking-wide truncate max-w-[100px]">
+                      {category}
+                    </span>
+                  )}
+                </div>
                 <h3 className="font-display font-bold text-slate-900 text-lg leading-tight truncate pr-2">
                   {name}
                 </h3>
@@ -293,6 +297,13 @@ const BloodMarkerCard: React.FC<Props> = ({ data, onClick, onToggleIgnore }) => 
 
         {/* Footer / Meta */}
         <div className="mt-4 sm:mt-0 space-y-3">
+           {/* Description Preview */}
+           {description && (
+             <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+               {description}
+             </p>
+           )}
+
            <div className="flex flex-wrap gap-2">
               {isIgnored && (
                  <div className="text-[10px] font-bold px-2 py-1 rounded-md bg-slate-200 text-slate-600 border border-slate-300">
@@ -303,11 +314,6 @@ const BloodMarkerCard: React.FC<Props> = ({ data, onClick, onToggleIgnore }) => 
                 <div className={cx("text-[10px] font-bold px-2 py-1 rounded-md flex items-center gap-1", trendColorClass)}>
                    {deltaUp ? '↗' : '↘'} {deltaSign}{formatNumber(delta)}
                 </div>
-              )}
-              {(hasLatestNote || markerNotesCount > 0) && (
-                 <div className="text-[10px] font-bold px-2 py-1 rounded-md bg-amber-50 text-amber-800 border border-amber-100">
-                    📝 Not
-                 </div>
               )}
            </div>
            
