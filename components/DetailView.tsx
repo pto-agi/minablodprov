@@ -230,8 +230,10 @@ const DetailView: React.FC<Props> = ({
   return (
     <div className="pb-32 bg-slate-50 min-h-screen animate-in fade-in duration-300">
       
-      {/* 1. TOP NAV: Clean & Minimal */}
-      <div className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between">
+      {/* 1. Sub-Header for Detail View */}
+      {/* Changed top-0 to top-14 to sit under main header, or just let it scroll normally? 
+          Let's make it sticky under the main header (approx 4rem/64px) */}
+      <div className="sticky top-16 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between">
         <button onClick={onBack} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors p-1 rounded-lg hover:bg-slate-100">
           <Icon name="back" className="w-5 h-5" />
           <span className="text-sm font-semibold hidden sm:inline">Tillbaka</span>

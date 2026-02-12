@@ -21,9 +21,12 @@ import ActionList from './components/ActionList';
 import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
 import ImportModal from './components/ImportModal';
-import GlobalTimelineDrawer from './components/GlobalTimelineDrawer';
 import JournalHub from './components/JournalHub';
 import JournalEditor from './components/JournalEditor';
+import AccountView from './components/AccountView';
+import ActivePlanView from './components/ActivePlanView'; // NEW
+import Header, { NavTab } from './components/Header';
+import Footer from './components/Footer';
 import { supabase } from './supabaseClient';
 import { Session } from '@supabase/supabase-js';
 
@@ -37,13 +40,6 @@ const ts = (iso?: string | null) => {
   const d = new Date(iso);
   const t = d.getTime();
   return Number.isFinite(t) ? t : 0;
-};
-
-const formatDateTimeSv = (iso?: string | null) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return new Intl.DateTimeFormat('sv-SE', { dateStyle: 'medium', timeStyle: 'short' }).format(d);
 };
 
 const statusRank = (status: string | undefined) => {
@@ -219,7 +215,9 @@ const App: React.FC = () => {
   
   // Navigation State
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
-  const [view, setView] = useState<'dashboard' | 'journal'>('dashboard');
+  // View State: Dashboard (Home), Plan (Journal), Account (My Pages), Archive (Old plans)
+  const [view, setView] = useState<'dashboard' | 'plan' | 'account' | 'archive'>('dashboard');
+  
   const [editingPlan, setEditingPlan] = useState<JournalPlan | null | 'new'>(null);
 
   // Modals
@@ -227,7 +225,6 @@ const App: React.FC = () => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [prefillMarkerId, setPrefillMarkerId] = useState<string | null>(null);
   const [isOptimizedModalOpen, setIsOptimizedModalOpen] = useState(false);
-  const [isTimelineOpen, setIsTimelineOpen] = useState(false); // Global Timeline State
   
   // UX State
   const [isFabOpen, setIsFabOpen] = useState(false);
@@ -340,7 +337,8 @@ const App: React.FC = () => {
         supabase.from('measurements').select('*').eq('user_id', userId).order('measured_at', { ascending: false }),
         supabase.from('marker_notes').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('measurement_todos').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
-        supabase.from('journal_entries').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        // We fetch plans ordered by updated_at to easily determine the "Active" one
+        supabase.from('journal_entries').select('*').eq('user_id', userId).order('updated_at', { ascending: false }),
         supabase.from('journal_entry_markers').select('*'), 
         supabase.from('user_marker_settings').select('*').eq('user_id', userId),
         supabase.from('journal_goals').select('*'),
@@ -585,6 +583,13 @@ const App: React.FC = () => {
      return map;
   }, [journalPlans]);
 
+  // ACTIVE PLAN LOGIC: The most recently updated plan is considered "Active"
+  const activePlan = useMemo(() => {
+      if(journalPlans.length === 0) return null;
+      // Already sorted by updated_at in fetchData
+      return journalPlans[0]; 
+  }, [journalPlans]);
+
   const stats = useMemo(() => {
     const optimizedEvents: OptimizationEvent[] = [];
     const attentionMarkers: MarkerHistory[] = [];
@@ -757,6 +762,30 @@ const App: React.FC = () => {
   // -----------------------------
   // UX Handlers
   // -----------------------------
+  
+  // NEW: Navigation Handler
+  const handleNavigation = useCallback((tab: NavTab) => {
+    if (tab === 'dashboard') {
+      setView('dashboard');
+      setSelectedMarkerId(null);
+      setStatusFilter('attention');
+      setQuery('');
+    } else if (tab === 'plan') {
+      setView('plan'); // Will show ActivePlanView
+      setSelectedMarkerId(null);
+    } else if (tab === 'account') {
+      setView('account');
+      setSelectedMarkerId(null);
+    }
+  }, []);
+
+  // Determine current active tab
+  const activeTab: NavTab = useMemo(() => {
+    if (view === 'account') return 'account';
+    if (view === 'plan' || view === 'archive') return 'plan'; // Both point to Plan section
+    return 'dashboard';
+  }, [view]);
+
   const handleAttentionClick = useCallback(() => {
     setStatusFilter('attention');
     const el = document.getElementById('marker-list-top');
@@ -1215,7 +1244,7 @@ const App: React.FC = () => {
                         marker_id: g.markerId,
                         direction: g.direction,
                         target_value: g.targetValue,
-                        target_value_upper: g.targetValueUpper // New field
+                        target_value_upper: g.targetValueUpper // Fixed from g.target_value_upper
                     }))
                 );
             }
@@ -1346,29 +1375,55 @@ const App: React.FC = () => {
 
     const todosForMarker = todos.filter(t => t.markerIds.includes(selectedMarkerId));
 
+    // Use a layout wrapper even for DetailView to maintain global header
     return (
-      <DetailView
-        data={selectedMarkerData}
-        onBack={() => setSelectedMarkerId(null)}
-        onAddMeasurement={(markerId) => {
-          setPrefillMarkerId(markerId);
-          setIsModalOpen(true);
-        }}
-        onSaveNote={handleCreateMarkerNote}
-        onUpdateNote={handleUpdateMarkerNote}
-        onDeleteNote={handleDeleteMarkerNote}
-        onUpdateMeasurementNote={handleUpdateMeasurementNote}
-        todos={todosForMarker}
-        onAddTodo={handleAddTodoMarker}
-        onToggleTodo={handleToggleTodo}
-        onUpdateTodo={handleUpdateTodoTask}
-        onDeleteTodo={handleDeleteTodo}
-        onDeleteMeasurement={handleDeleteMeasurement}
-        onUpdateMeasurement={handleUpdateMeasurement}
-        onToggleIgnore={handleToggleIgnore}
-        allMarkers={bloodMarkers}
-        onUpdateTags={handleUpdateTodoTags}
-      />
+      <div className="flex flex-col min-h-screen bg-slate-50">
+        <Header 
+          activeTab={activeTab}
+          onNavigate={handleNavigation}
+          onRefresh={handleRefresh} 
+          loading={loadingData}
+          onSignOut={handleSignOut}
+          onOpenTimeline={() => { /* No-op in header, timeline is in Account */ }}
+        />
+        <main className="flex-1 pt-16">
+          <DetailView
+            data={selectedMarkerData}
+            onBack={() => setSelectedMarkerId(null)}
+            onAddMeasurement={(markerId) => {
+              setPrefillMarkerId(markerId);
+              setIsModalOpen(true);
+            }}
+            onSaveNote={handleCreateMarkerNote}
+            onUpdateNote={handleUpdateMarkerNote}
+            onDeleteNote={handleDeleteMarkerNote}
+            onUpdateMeasurementNote={handleUpdateMeasurementNote}
+            todos={todosForMarker}
+            onAddTodo={handleAddTodoMarker}
+            onToggleTodo={handleToggleTodo}
+            onUpdateTodo={handleUpdateTodoTask}
+            onDeleteTodo={handleDeleteTodo}
+            onDeleteMeasurement={handleDeleteMeasurement}
+            onUpdateMeasurement={handleUpdateMeasurement}
+            onToggleIgnore={handleToggleIgnore}
+            allMarkers={bloodMarkers}
+            onUpdateTags={handleUpdateTodoTags}
+          />
+        </main>
+        <Footer />
+
+        <NewMeasurementModal
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false);
+            setPrefillMarkerId(null);
+          }}
+          onSave={handleSaveMeasurement}
+          availableMarkers={bloodMarkers}
+          initialMarkerId={prefillMarkerId ?? undefined}
+        />
+        {toast && <Toast type={toast.type} title={toast.title} message={toast.message} onClose={() => setToast(null)} />}
+      </div>
     );
   }
 
@@ -1376,93 +1431,22 @@ const App: React.FC = () => {
   const hasFilteredResults = filteredDashboardData.length > 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 pb-24 relative">
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 relative">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-56 right-[-12rem] h-[32rem] w-[32rem] rounded-full bg-gradient-to-br from-emerald-200/55 to-cyan-200/35 blur-3xl" />
         <div className="absolute -bottom-56 left-[-12rem] h-[32rem] w-[32rem] rounded-full bg-gradient-to-tr from-indigo-200/45 to-violet-200/35 blur-3xl" />
       </div>
 
-      <header className="border-b border-slate-200/70 sticky top-0 z-30 bg-white/70 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-5 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="relative w-10 h-10 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 flex items-center justify-center text-white font-extrabold shadow-sm">
-              <span className="font-display tracking-tight">BW</span>
-              <div className="absolute inset-0 rounded-2xl ring-1 ring-white/15" />
-            </div>
-            <div className="min-w-0 hidden sm:block">
-              <h1 className="text-lg sm:text-xl font-display font-bold text-slate-900 tracking-tight leading-tight">
-                bloodwork.se
-              </h1>
-              <p className="text-[11px] sm:text-xs text-slate-500 font-medium leading-tight">
-                Biomarker dashboard • <span className="font-mono">pro</span>
-              </p>
-            </div>
-          </div>
+      <Header 
+        activeTab={activeTab}
+        onNavigate={handleNavigation}
+        onRefresh={handleRefresh} 
+        loading={loadingData} 
+        onOpenTimeline={() => { /* No-op */ }}
+        onSignOut={handleSignOut}
+      />
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            
-            {/* VIEW SWITCHER */}
-            <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
-               <button 
-                 onClick={() => setView('dashboard')}
-                 className={cx("px-3 py-1.5 rounded-lg text-xs font-bold transition-all", view === 'dashboard' ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-900")}
-               >
-                 Översikt
-               </button>
-               <button 
-                 onClick={() => setView('journal')}
-                 className={cx("px-3 py-1.5 rounded-lg text-xs font-bold transition-all", view === 'journal' ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-900")}
-               >
-                 Journal
-               </button>
-            </div>
-
-            {/* Timeline Button */}
-            <button
-              onClick={() => setIsTimelineOpen(true)}
-              className="w-10 h-10 rounded-full bg-white/70 hover:bg-white flex items-center justify-center ring-1 ring-slate-900/10 transition-colors"
-              title="Händelselogg"
-            >
-               <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-               </svg>
-            </button>
-
-            <button
-              onClick={handleRefresh}
-              disabled={loadingData}
-              className={cx(
-                'w-10 h-10 rounded-full flex items-center justify-center transition-colors',
-                'bg-white/70 ring-1 ring-slate-900/10 hover:bg-white',
-                loadingData && 'opacity-70 cursor-not-allowed',
-              )}
-              title="Uppdatera"
-              aria-label="Uppdatera"
-            >
-              {loadingData ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-slate-900" />
-              ) : (
-                <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0014-7 9 9 0 00-14-7" />
-                </svg>
-              )}
-            </button>
-
-            <button
-              onClick={handleSignOut}
-              className="w-10 h-10 rounded-full bg-white/70 hover:bg-white flex items-center justify-center ring-1 ring-slate-900/10 transition-colors"
-              title="Logga ut"
-              aria-label="Logga ut"
-            >
-              <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-4 pt-6 relative" id="marker-list-top">
+      <main className="flex-1 max-w-6xl mx-auto px-4 pt-24 pb-12 w-full relative z-10" id="marker-list-top">
         
         {/* DATA / DB WARNINGS */}
         {dataError && (
@@ -1481,13 +1465,45 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {view === 'journal' ? (
-           // JOURNAL VIEW
-           <JournalHub 
-              plans={journalPlans} 
-              markers={bloodMarkers} 
-              onOpenPlan={(p) => setEditingPlan(p || 'new')} 
-              onDeletePlan={handleDeleteJournalPlan} // Passed here
+        {view === 'account' ? (
+            <AccountView 
+                session={session}
+                measurements={measurements}
+                notes={markerNotes}
+                markers={bloodMarkers}
+                onSelectMarker={(id) => {
+                    setSelectedMarkerId(id);
+                    setView('dashboard');
+                }}
+                onSignOut={handleSignOut}
+            />
+        ) : view === 'archive' ? (
+           // ARCHIVE VIEW (Old JournalHub)
+           <div>
+              <button 
+                onClick={() => setView('plan')}
+                className="mb-4 text-xs font-bold text-slate-500 hover:text-slate-900 flex items-center gap-2 px-1"
+              >
+                 ← Tillbaka till aktiv plan
+              </button>
+              <JournalHub 
+                  plans={journalPlans} 
+                  markers={bloodMarkers} 
+                  onOpenPlan={(p) => setEditingPlan(p || 'new')} 
+                  onDeletePlan={handleDeleteJournalPlan} // Passed here
+              />
+           </div>
+        ) : view === 'plan' ? (
+           // ACTIVE PLAN VIEW
+           <ActivePlanView 
+              plan={activePlan} 
+              allMarkers={dashboardData} 
+              todos={todos.filter(t => t.linkedJournalId === activePlan?.id && !t.done)} // Only show pending tasks
+              onEdit={() => setEditingPlan(activePlan)}
+              onCreate={() => setEditingPlan('new')}
+              onViewArchive={() => setView('archive')}
+              onToggleTodo={handleToggleTodo}
+              onDeleteTodo={handleDeleteTodo}
            />
         ) : (
            // DASHBOARD VIEW
@@ -1667,6 +1683,8 @@ const App: React.FC = () => {
            </>
         )}
       </main>
+
+      <Footer />
       
       {/* Floating Action Button (FAB) Group */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-4 pointer-events-none">
@@ -1781,15 +1799,6 @@ const App: React.FC = () => {
         isOpen={isOptimizedModalOpen}
         onClose={() => setIsOptimizedModalOpen(false)}
         events={stats.optimizedEvents}
-      />
-
-      <GlobalTimelineDrawer 
-        isOpen={isTimelineOpen}
-        onClose={() => setIsTimelineOpen(false)}
-        measurements={measurements}
-        notes={markerNotes}
-        markers={bloodMarkers}
-        onSelectMarker={setSelectedMarkerId}
       />
     
       {toast && <Toast type={toast.type} title={toast.title} message={toast.message} onClose={() => setToast(null)} />}

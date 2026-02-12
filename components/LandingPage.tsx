@@ -1,4 +1,6 @@
+
 import React, { useMemo, useState } from "react";
+import TermsModal from "./TermsModal";
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
@@ -201,13 +203,14 @@ const PricingCard: React.FC<{
     </button>
 
     <div className={cx("mt-3 text-xs", highlight ? "text-slate-200" : "text-slate-500")}>
-      Bloodwork.se ger struktur och uppföljning – inte medicinsk rådgivning.
+      minablodprov.se ger struktur och uppföljning – inte medicinsk rådgivning.
     </div>
   </div>
 );
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isTermsOpen, setIsTermsOpen] = useState(false);
 
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id);
@@ -264,8 +267,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
   const faqs = useMemo(
     () => [
       {
-        q: "Är bloodwork.se medicinsk rådgivning?",
-        a: "Nej. Bloodwork.se är ett verktyg för struktur och uppföljning av labbvärden. Vid symtom, oro eller frågor – kontakta legitimerad vårdpersonal.",
+        q: "Är minablodprov.se medicinsk rådgivning?",
+        a: "Nej. minablodprov.se är ett verktyg för struktur och uppföljning av labbvärden. Vid symtom, oro eller frågor – kontakta legitimerad vårdpersonal.",
       },
       {
         q: "Hur tolkar jag “inom ref” och “avvikande”?",
@@ -296,9 +299,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             aria-label="Gå till toppen"
           >
             <div className="w-8 h-8 rounded-xl bg-slate-900 text-white flex items-center justify-center font-display font-bold shadow-sm">
-              BW
+              MB
             </div>
-            <span className="font-display font-bold text-slate-900 tracking-tight">bloodwork.se</span>
+            <span className="font-display font-bold text-slate-900 tracking-tight">minablodprov.se</span>
           </a>
 
           {/* Desktop Nav */}
@@ -309,8 +312,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             <a
               href="#funktioner"
               onClick={handleNavClick("funktioner")}
-              className="hover:text-slate-900 transition-colors"
-            >
+              className="hover:text-slate-900 transition-colors">
               Funktioner
             </a>
             <a href="#pris" onClick={handleNavClick("pris")} className="hover:text-slate-900 transition-colors">
@@ -392,7 +394,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
             <div>
               <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-slate-900/10 px-3 py-1.5 text-xs font-semibold text-slate-700">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Bloodwork that works • från provsvar till plan
+                Data that works • från provsvar till plan
               </div>
 
               <h1 className="mt-4 text-4xl sm:text-5xl font-display font-extrabold tracking-tight text-slate-900 leading-[1.05]">
@@ -454,7 +456,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
               </div>
 
               <p className="mt-6 text-xs text-slate-500 max-w-xl">
-                Bloodwork.se ger struktur och uppföljning – inte medicinsk rådgivning. Vid frågor om hälsa: kontakta vården.
+                minablodprov.se ger struktur och uppföljning – inte medicinsk rådgivning. Vid frågor om hälsa: kontakta vården.
               </p>
             </div>
 
@@ -654,7 +656,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                     Integritet & data
                   </h2>
                   <p className="mt-2 text-slate-600 max-w-2xl">
-                    Hälsodata är personligt. Därför är Bloodwork.se byggt för tydlighet, kontroll och förtroende – så att du
+                    Hälsodata är personligt. Därför är minablodprov.se byggt för tydlighet, kontroll och förtroende – så att du
                     kan fokusera på din uppföljning.
                   </p>
                 </div>
@@ -684,7 +686,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                     <div className="min-w-0">
                       <div className="text-base font-bold text-slate-900 tracking-tight">Villkor i korthet</div>
                       <div className="mt-2 text-sm text-slate-600 leading-relaxed">
-                        Bloodwork.se är ett uppföljningsverktyg och ersätter inte vården. Vi visar status mot referensintervall
+                        minablodprov.se är ett uppföljningsverktyg och ersätter inte vården. Vi visar status mot referensintervall
                         och hjälper dig strukturera historik, mål och anteckningar.
                       </div>
                     </div>
@@ -702,7 +704,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
                         Har du frågor om konto, data eller funktioner? Hör av dig så hjälper vi dig snabbt.
                       </div>
                       <div className="mt-3 text-sm font-semibold text-slate-900">
-                        support@bloodwork.se
+                        support@minablodprov.se
                       </div>
                       <div className="mt-1 text-xs text-slate-500">
                         Svarstid normalt inom 24 timmar (vardagar).
@@ -713,7 +715,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
               </div>
 
               <div className="mt-6 text-xs text-slate-500">
-                Bloodwork.se är ett uppföljningsverktyg – inte medicinsk rådgivning.
+                minablodprov.se är ett uppföljningsverktyg – inte medicinsk rådgivning.
               </div>
             </div>
           </div>
@@ -769,20 +771,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStart, onLogin }) =>
       {/* FOOTER */}
       <footer className="bg-white border-t border-slate-200 py-12">
         <div className="max-w-6xl mx-auto px-5 flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="text-sm text-slate-500">© 2026 Bloodwork.se. Alla rättigheter förbehållna.</div>
+          <div className="text-sm text-slate-500">© 2026 minablodprov.se. Alla rättigheter förbehållna.</div>
           <div className="flex gap-6 text-sm font-medium text-slate-600">
-            <a href="#villkor" onClick={handleNavClick("villkor")} className="hover:text-slate-900">
-              Villkor
-            </a>
-            <a href="#integritet" onClick={handleNavClick("integritet")} className="hover:text-slate-900">
-              Integritet
-            </a>
+            <button
+              onClick={() => setIsTermsOpen(true)}
+              className="hover:text-slate-900 transition-colors"
+            >
+              Villkor & Integritet
+            </button>
             <a href="#kontakt" onClick={handleNavClick("kontakt")} className="hover:text-slate-900">
               Kontakt
             </a>
           </div>
         </div>
       </footer>
+
+      {/* Modal */}
+      <TermsModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
     </div>
   );
 };
