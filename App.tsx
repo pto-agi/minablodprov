@@ -228,6 +228,9 @@ const App: React.FC = () => {
   const [prefillMarkerId, setPrefillMarkerId] = useState<string | null>(null);
   const [isOptimizedModalOpen, setIsOptimizedModalOpen] = useState(false);
   const [isTimelineOpen, setIsTimelineOpen] = useState(false); // Global Timeline State
+  
+  // UX State
+  const [isFabOpen, setIsFabOpen] = useState(false);
 
   // DB capability flags
   const [dbCapabilities, setDbCapabilities] = useState({
@@ -254,19 +257,6 @@ const App: React.FC = () => {
       }
     };
   }, []);
-
-  // Notification State for Optimized Events
-  const [seenOptimizedCount, setSeenOptimizedCount] = useState<number>(0);
-
-  const optimizedSeenKey = useMemo(() => {
-    const uid = session?.user?.id;
-    return uid ? `hj_seen_optimized_count:${uid}` : 'hj_seen_optimized_count:anon';
-  }, [session?.user?.id]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    setSeenOptimizedCount(Number(localStorage.getItem(optimizedSeenKey) || 0));
-  }, [optimizedSeenKey]);
 
   // Data
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
@@ -759,17 +749,9 @@ const App: React.FC = () => {
     updateHistory();
   }, [session?.user, stats.totalCount, stats.normalCount, statsHistory, loadingData]);
 
-
-  // Notification Logic for Optimized Events
-  const totalOptimizedCount = stats.optimizedEvents.length;
-  // If user has seen fewer than current total, the difference is "new"
-  const newOptimizedCount = Math.max(0, totalOptimizedCount - seenOptimizedCount);
-
+  // Open Optimized Modal (no more tracking "seen")
   const handleOpenOptimizedEvents = () => {
     setIsOptimizedModalOpen(true);
-    // Mark as seen
-    setSeenOptimizedCount(totalOptimizedCount);
-    localStorage.setItem(optimizedSeenKey, String(totalOptimizedCount));
   };
 
   // -----------------------------
@@ -1290,7 +1272,6 @@ const App: React.FC = () => {
       setJournalPlans([]);
       setSelectedMarkerId(null);
       setShowAuth(false);
-      setSeenOptimizedCount(0);
       setStatsHistory([]); // Clear History
       setDbCapabilities({ markerNotes: true, todos: true, journal: true });
       setToast(null);
@@ -1521,7 +1502,6 @@ const App: React.FC = () => {
                   history={statsHistory} // NEW
                   onOptimizedClick={handleOpenOptimizedEvents}
                   onAttentionClick={handleAttentionClick}
-                  newOptimizedCount={newOptimizedCount}
                 />
               )}
               
@@ -1688,44 +1668,95 @@ const App: React.FC = () => {
         )}
       </main>
       
-      {/* ... FABs ... */}
-      <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3 items-end">
-        {/* Bulk Import Button */}
-        <button
-          onClick={() => setIsImportModalOpen(true)}
-          disabled={bloodMarkers.length === 0}
-          className={cx(
-            'rounded-full p-4 pr-6 shadow-xl transition-all active:scale-95 flex items-center gap-2',
-            'bg-white text-slate-900 hover:bg-slate-50 shadow-slate-900/10',
-            'ring-1 ring-slate-900/10',
-            'disabled:opacity-50 disabled:cursor-not-allowed'
-          )}
-        >
-          <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-          </svg>
-          <span className="font-semibold text-sm">Importera svar</span>
-        </button>
+      {/* Floating Action Button (FAB) Group */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-4 pointer-events-none">
+        {/* If no data, show the big "Get Started" buttons (Onboarding mode) to encourage action */}
+        {!hasAnyTrackedData ? (
+           <div className="pointer-events-auto flex flex-col gap-3 items-end animate-in fade-in slide-in-from-bottom-6 duration-700">
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                disabled={bloodMarkers.length === 0}
+                className={cx(
+                  'rounded-full p-4 pr-6 shadow-xl transition-all active:scale-95 flex items-center gap-2',
+                  'bg-white text-slate-900 hover:bg-slate-50 shadow-slate-900/10',
+                  'ring-1 ring-slate-900/10',
+                  'disabled:opacity-50 disabled:cursor-not-allowed'
+                )}
+              >
+                <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <span className="font-semibold text-sm">Importera svar</span>
+              </button>
 
-        {/* New Measurement Button */}
-        <button
-          onClick={() => {
-            setPrefillMarkerId(null);
-            setIsModalOpen(true);
-          }}
-          disabled={bloodMarkers.length === 0}
-          className={cx(
-            'rounded-full p-4 pr-6 shadow-xl transition-all active:scale-95 flex items-center gap-2',
-            'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20',
-            'ring-1 ring-slate-700/70',
-            'disabled:bg-slate-500 disabled:cursor-not-allowed disabled:ring-0',
-          )}
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          <span className="font-semibold">Ny mätning</span>
-        </button>
+              <button
+                onClick={() => {
+                  setPrefillMarkerId(null);
+                  setIsModalOpen(true);
+                }}
+                disabled={bloodMarkers.length === 0}
+                className={cx(
+                  'rounded-full p-4 pr-6 shadow-xl transition-all active:scale-95 flex items-center gap-2',
+                  'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20',
+                  'ring-1 ring-slate-700/70',
+                  'disabled:bg-slate-500 disabled:cursor-not-allowed disabled:ring-0',
+                )}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                <span className="font-semibold">Ny mätning</span>
+              </button>
+           </div>
+        ) : (
+           /* "Pro Mode" - Speed Dial to save space */
+           <div className="pointer-events-auto relative flex flex-col items-end gap-3">
+              {/* Expanded Options */}
+              <div className={cx(
+                  "flex flex-col gap-3 transition-all duration-300 origin-bottom-right",
+                  isFabOpen ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-10 scale-50 pointer-events-none"
+              )}>
+                  {/* Import Option */}
+                  <button 
+                     onClick={() => { setIsImportModalOpen(true); setIsFabOpen(false); }}
+                     className="flex items-center gap-3 pr-1 group"
+                  >
+                     <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-100 group-hover:text-slate-900 transition-colors">
+                        Importera svar
+                     </span>
+                     <div className="w-10 h-10 rounded-full bg-white text-emerald-600 shadow-lg flex items-center justify-center ring-1 ring-slate-900/5 group-hover:scale-110 transition-transform">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                     </div>
+                  </button>
+
+                  {/* Manual Measurement Option */}
+                  <button 
+                     onClick={() => { setPrefillMarkerId(null); setIsModalOpen(true); setIsFabOpen(false); }}
+                     className="flex items-center gap-3 pr-1 group"
+                  >
+                     <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-100 group-hover:text-slate-900 transition-colors">
+                        Ny mätning
+                     </span>
+                     <div className="w-10 h-10 rounded-full bg-white text-slate-900 shadow-lg flex items-center justify-center ring-1 ring-slate-900/5 group-hover:scale-110 transition-transform">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                     </div>
+                  </button>
+              </div>
+
+              {/* Main Toggle Button */}
+              <button
+                onClick={() => setIsFabOpen(!isFabOpen)}
+                className={cx(
+                  "w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 z-50",
+                  isFabOpen ? "bg-white text-slate-900 rotate-45 ring-1 ring-slate-200" : "bg-slate-900 text-white hover:scale-105"
+                )}
+              >
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                 </svg>
+              </button>
+           </div>
+        )}
       </div>
 
       <NewMeasurementModal

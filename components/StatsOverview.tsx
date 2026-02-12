@@ -13,7 +13,6 @@ interface Props {
   onOptimizedClick: () => void;
   onAttentionClick?: () => void;
   actionableTodos?: ActionableTodo[];
-  newOptimizedCount?: number;
 }
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
@@ -70,8 +69,7 @@ const StatsOverview: React.FC<Props> = ({
   coveredAttentionCount,
   history,
   onOptimizedClick,
-  onAttentionClick,
-  newOptimizedCount = 0
+  onAttentionClick
 }) => {
   const hasData = totalMarkers > 0;
   
@@ -262,29 +260,21 @@ const StatsOverview: React.FC<Props> = ({
               </button>
             )}
 
-            {/* Milestones Button */}
+            {/* Milestones Button - Static Style (No Notification) */}
             {optimizedCount > 0 && (
                  <button 
                    onClick={onOptimizedClick}
-                   className={cx(
-                     "group flex items-center gap-2 px-4 py-3 rounded-2xl transition-all border lg:w-72",
-                     newOptimizedCount > 0 
-                       ? "bg-emerald-50 border-emerald-200 text-emerald-800 shadow-emerald-100 shadow-md" 
-                       : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
-                   )}
+                   className="group flex items-center gap-2 px-4 py-3 rounded-2xl transition-all border lg:w-72 bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
                  >
-                   <div className={cx(
-                     "flex items-center justify-center w-8 h-8 rounded-full text-xs shadow-sm shrink-0",
-                     newOptimizedCount > 0 ? "bg-emerald-500 text-white animate-pulse" : "bg-slate-100 text-amber-500"
-                   )}>
-                     {newOptimizedCount > 0 ? '+' : '★'}
+                   <div className="flex items-center justify-center w-8 h-8 rounded-full text-xs shadow-sm shrink-0 bg-slate-100 text-amber-500">
+                     ★
                    </div>
                    <div className="flex flex-col leading-none text-left">
                      <span className="text-[10px] font-bold uppercase tracking-wide opacity-70">
-                       {newOptimizedCount > 0 ? 'Nya framsteg!' : 'Milstolpar'}
+                       Milstolpar
                      </span>
                      <span className="text-sm font-bold">
-                       {newOptimizedCount > 0 ? `${newOptimizedCount} optimerade` : `${optimizedCount} st optimerade`}
+                       {optimizedCount} st optimerade
                      </span>
                    </div>
                  </button>

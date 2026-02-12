@@ -395,8 +395,8 @@ const JournalEditor: React.FC<Props> = ({
     onClose();
   }, [isDirty, onClose]);
 
-  // Sidebar content separated to be reusable in Desktop Sidebar and Mobile Drawer
-  const SidebarContent = () => (
+  // Sidebar content (Defined as variable to prevent remounting/focus loss on input change)
+  const sidebarContent = (
      <div className="p-5 flex flex-col h-full overflow-y-auto">
         
         {/* SECTION: GOALS */}
@@ -648,7 +648,7 @@ const JournalEditor: React.FC<Props> = ({
 
         {/* RIGHT: DESKTOP SIDEBAR (Hidden on Mobile) */}
         <aside className="hidden lg:flex w-80 bg-slate-50 border-l border-slate-200 flex-col z-10">
-           <SidebarContent />
+           {sidebarContent}
         </aside>
 
         {/* MOBILE SIDEBAR DRAWER (Overlay) */}
@@ -665,7 +665,7 @@ const JournalEditor: React.FC<Props> = ({
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                    </button>
                 </div>
-                <SidebarContent />
+                {sidebarContent}
              </div>
           </div>
         )}
