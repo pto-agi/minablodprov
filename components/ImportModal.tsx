@@ -158,8 +158,8 @@ const ImportModal: React.FC<Props> = ({ isOpen, onClose, availableMarkers, onSav
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
           <div>
-            <h3 className="text-xl font-display font-bold text-slate-900">Importera provsvar</h3>
-            <p className="text-sm text-slate-500">Klistra in text från din journal (t.ex. 1177 eller Werlabs)</p>
+            <h3 className="text-xl font-display font-bold text-slate-900">Importera eller lägg till data</h3>
+            <p className="text-sm text-slate-500">Skriv in värden eller klistra in från journal.</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-2 bg-white rounded-full ring-1 ring-slate-900/5">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,15 +174,16 @@ const ImportModal: React.FC<Props> = ({ isOpen, onClose, availableMarkers, onSav
                <div className="bg-emerald-50 rounded-2xl p-4 flex gap-3 text-sm text-emerald-900 ring-1 ring-emerald-900/10">
                   <span className="text-xl">🤖</span>
                   <div>
-                    <span className="font-bold">AI-Analys:</span> Kopiera texten rakt av från din PDF eller webbsida. AI:n identifierar automatiskt markörer som stöds och ignorerar övrig text.
+                    <span className="font-bold">AI-Analys:</span> Skriv t.ex. "Hb 150" eller klistra in en hel text från Werlabs/1177. AI:n hittar värdena automatiskt.
                   </div>
                </div>
 
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder={`Exempel:\nHemoglobin 145 g/L\nFerritin 120 ug/L\nTestosteron 22...`}
+                placeholder={`Du kan skriva fritt:\n"Jag hade 145 i Hb och 22 i testosteron"\n\nEller klistra in en lista:\nHemoglobin 145 g/L\nFerritin 120 ug/L\n...`}
                 className="w-full h-64 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-mono focus:ring-2 focus:ring-slate-900 focus:outline-none resize-none"
+                autoFocus
               />
               
               {error && (

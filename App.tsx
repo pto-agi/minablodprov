@@ -222,13 +222,13 @@ const App: React.FC = () => {
   const [editingPlanId, setEditingPlanId] = useState<string | 'new' | null>(null);
 
   // Modals
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false); // Still used for DetailView manual add
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [prefillMarkerId, setPrefillMarkerId] = useState<string | null>(null);
   const [isOptimizedModalOpen, setIsOptimizedModalOpen] = useState(false);
   
   // UX State
-  const [isFabOpen, setIsFabOpen] = useState(false);
+  const [isFabOpen, setIsFabOpen] = useState(false); // Kept for future, simplified for now
 
   // DB capability flags
   const [dbCapabilities, setDbCapabilities] = useState({
@@ -1390,7 +1390,7 @@ const App: React.FC = () => {
             onBack={() => setSelectedMarkerId(null)}
             onAddMeasurement={(markerId) => {
               setPrefillMarkerId(markerId);
-              setIsModalOpen(true);
+              setIsModalOpen(true); // Keep modal for specific add in detail view
             }}
             onSaveNote={handleCreateMarkerNote}
             onUpdateNote={handleUpdateMarkerNote}
@@ -1410,6 +1410,7 @@ const App: React.FC = () => {
         </main>
         <Footer />
 
+        {/* Modal is still here for DetailView usage */}
         <NewMeasurementModal
           isOpen={isModalOpen}
           onClose={() => {
@@ -1528,6 +1529,7 @@ const App: React.FC = () => {
                   history={statsHistory}
                   onOptimizedClick={handleOpenOptimizedEvents}
                   onAttentionClick={handleAttentionClick}
+                  onImportClick={() => setIsImportModalOpen(true)} // Open AI Import directly
                   // Todo Props
                   todos={activeTodos}
                   onToggleTodo={handleToggleTodo}
@@ -1627,11 +1629,11 @@ const App: React.FC = () => {
                               Kom igång med din första provtagning
                             </h3>
                             <p className="text-slate-600 mt-2 text-sm max-w-xl">
-                              Importera ett provsvar (snabbast) eller lägg in värden manuellt.
+                              Importera ett provsvar eller skriv in dina värden.
                             </p>
                             <div className="mt-5 grid sm:grid-cols-3 gap-3 max-w-2xl">
                               {[
-                                { t: '1) Importera', d: 'Klistra in/adda provsvar' },
+                                { t: '1) Importera', d: 'Klistra in eller skriv värden' },
                                 { t: '2) Se status', d: 'Avvikande vs inom ref' },
                                 { t: '3) Följ trenden', d: 'Se förbättring över tid' },
                               ].map((x) => (
@@ -1643,8 +1645,7 @@ const App: React.FC = () => {
                             </div>
                           </div>
                           <div className="flex flex-col gap-3 w-full sm:w-[16rem]">
-                            <button onClick={() => setIsImportModalOpen(true)} className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10">Importera provsvar</button>
-                            <button onClick={() => { setPrefillMarkerId(null); setIsModalOpen(true); }} className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-white ring-1 ring-slate-900/10 hover:bg-slate-50">Lägg till manuellt</button>
+                            <button onClick={() => setIsImportModalOpen(true)} className="w-full rounded-full px-5 py-3 text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 shadow-sm shadow-slate-900/10">Lägg till värden (AI)</button>
                           </div>
                         </div>
                       </div>
@@ -1693,7 +1694,7 @@ const App: React.FC = () => {
 
       <Footer />
       
-      {/* Floating Action Button (FAB) Group */}
+      {/* Floating Action Button (FAB) Group - Now Simplified */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-4 pointer-events-none">
         {/* If no data, show the big "Get Started" buttons (Onboarding mode) to encourage action */}
         {!hasAnyTrackedData ? (
@@ -1711,70 +1712,20 @@ const App: React.FC = () => {
                 <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                 </svg>
-                <span className="font-semibold text-sm">Importera svar</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setPrefillMarkerId(null);
-                  setIsModalOpen(true);
-                }}
-                disabled={bloodMarkers.length === 0}
-                className={cx(
-                  'rounded-full p-4 pr-6 shadow-xl transition-all active:scale-95 flex items-center gap-2',
-                  'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20',
-                  'ring-1 ring-slate-700/70',
-                  'disabled:bg-slate-500 disabled:cursor-not-allowed disabled:ring-0',
-                )}
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span className="font-semibold">Ny mätning</span>
+                <span className="font-semibold text-sm">Lägg till värden (AI)</span>
               </button>
            </div>
         ) : (
-           /* "Pro Mode" - Speed Dial to save space */
+           /* "Pro Mode" - Simplified Speed Dial */
            <div className="pointer-events-auto relative flex flex-col items-end gap-3">
-              {/* Expanded Options */}
-              <div className={cx(
-                  "flex flex-col gap-3 transition-all duration-300 origin-bottom-right",
-                  isFabOpen ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-10 scale-50 pointer-events-none"
-              )}>
-                  {/* Import Option */}
-                  <button 
-                     onClick={() => { setIsImportModalOpen(true); setIsFabOpen(false); }}
-                     className="flex items-center gap-3 pr-1 group"
-                  >
-                     <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-100 group-hover:text-slate-900 transition-colors">
-                        Importera svar
-                     </span>
-                     <div className="w-10 h-10 rounded-full bg-white text-emerald-600 shadow-lg flex items-center justify-center ring-1 ring-slate-900/5 group-hover:scale-110 transition-transform">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                     </div>
-                  </button>
-
-                  {/* Manual Measurement Option */}
-                  <button 
-                     onClick={() => { setPrefillMarkerId(null); setIsModalOpen(true); setIsFabOpen(false); }}
-                     className="flex items-center gap-3 pr-1 group"
-                  >
-                     <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-slate-100 group-hover:text-slate-900 transition-colors">
-                        Ny mätning
-                     </span>
-                     <div className="w-10 h-10 rounded-full bg-white text-slate-900 shadow-lg flex items-center justify-center ring-1 ring-slate-900/5 group-hover:scale-110 transition-transform">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                     </div>
-                  </button>
-              </div>
-
-              {/* Main Toggle Button */}
+              {/* Main Toggle Button - Only one action now: Import/Add */}
               <button
-                onClick={() => setIsFabOpen(!isFabOpen)}
+                onClick={() => setIsImportModalOpen(true)}
                 className={cx(
                   "w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 z-50",
-                  isFabOpen ? "bg-white text-slate-900 rotate-45 ring-1 ring-slate-200" : "bg-slate-900 text-white hover:scale-105"
+                  "bg-slate-900 text-white hover:scale-105 active:scale-95"
                 )}
+                title="Lägg till mätning"
               >
                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />

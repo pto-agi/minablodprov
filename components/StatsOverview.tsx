@@ -13,6 +13,7 @@ interface Props {
   history: StatsHistoryEntry[];
   onOptimizedClick: () => void;
   onAttentionClick?: () => void;
+  onImportClick?: () => void; // New prop for AI Import
   actionableTodos?: ActionableTodo[];
   
   // Todo props passed down
@@ -82,6 +83,7 @@ const StatsOverview: React.FC<Props> = ({
   history,
   onOptimizedClick,
   onAttentionClick,
+  onImportClick,
   todos,
   onToggleTodo,
   onDeleteTodo,
@@ -213,6 +215,7 @@ const StatsOverview: React.FC<Props> = ({
 
             {/* Bottom Area: Action Buttons (Cards) */}
             <div className="flex flex-col sm:flex-row gap-4">
+                
                 {!isAllOptimal && (
                   <button
                     onClick={onAttentionClick}
@@ -259,6 +262,28 @@ const StatsOverview: React.FC<Props> = ({
                        </div>
                      </button>
                 )}
+
+                {/* AI IMPORT CARD (MOVED TO END) */}
+                <button
+                  onClick={onImportClick}
+                  className="group relative flex-1 text-left bg-slate-900 hover:bg-slate-800 text-white rounded-2xl p-4 shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg flex flex-col justify-between overflow-hidden"
+                >
+                   <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                      <svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                   </div>
+                   <div className="flex items-center gap-2 mb-2">
+                      <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                         <span className="text-sm">✨</span>
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                        Ny mätning
+                      </span>
+                   </div>
+                   <div>
+                      <div className="font-bold text-lg leading-tight">Snabbimport</div>
+                      <div className="text-xs text-slate-400 mt-1 font-medium">Klistra in eller skriv direkt</div>
+                   </div>
+                </button>
             </div>
           </div>
 
