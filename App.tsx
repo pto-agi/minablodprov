@@ -1220,7 +1220,7 @@ const App: React.FC = () => {
 
   // --- JOURNAL ACTIONS ---
   const handleSaveJournalPlan = useCallback(async (
-    planId: string | undefined, // NEW: Accepts explicit ID or 'temp-new'
+    planId: string | undefined, // MODIFIED: Accepts explicit ID or 'temp-new'
     title: string, 
     content: string, 
     markerIds: string[], 
