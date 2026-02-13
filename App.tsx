@@ -1220,6 +1220,7 @@ const App: React.FC = () => {
 
   // --- JOURNAL ACTIONS ---
   const handleSaveJournalPlan = useCallback(async (
+    planId: string | undefined, // NEW: Accepts explicit ID or 'temp-new'
     title: string, 
     content: string, 
     markerIds: string[], 
@@ -1230,10 +1231,11 @@ const App: React.FC = () => {
       if (!session?.user) throw new Error("No user");
       
       try {
-        const isNew = editingPlanId === 'new';
-        const id = isNew ? undefined : editingPlanId; // Use active ID
+        // Determine effective ID for DB (undefined = create new)
+        const isCreating = planId === 'temp-new' || !planId;
+        const idToUpsert = isCreating ? undefined : planId;
 
-        let savedId = id;
+        let savedId = idToUpsert;
 
         // 1. Upsert Plan
         const payload: any = {
@@ -1244,7 +1246,7 @@ const App: React.FC = () => {
             target_date: targetDate || null,
             updated_at: new Date().toISOString()
         };
-        if (id && id !== 'new') payload.id = id;
+        if (idToUpsert) payload.id = idToUpsert;
 
         const { data, error } = await supabase
           .from('journal_entries')
@@ -1281,8 +1283,8 @@ const App: React.FC = () => {
 
         await fetchData();
         
-        // If we just created a new one, switch out of 'new' mode to the real ID
-        if (isNew && savedId) {
+        // If we just created a new one from the dashboard flow, update state
+        if (editingPlanId === 'new' && savedId) {
             setEditingPlanId(savedId);
         }
 

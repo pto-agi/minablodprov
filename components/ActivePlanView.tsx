@@ -18,6 +18,7 @@ interface Props {
   onUpdateTodoTask: (id: string, task: string, date: string | null) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSave: (
+    id: string | undefined,
     title: string,
     content: string,
     markerIds: string[],
@@ -216,6 +217,7 @@ const ActivePlanView: React.FC<Props> = ({
       try {
           const content = contentRef.current ? sanitizeHtmlUnsafe(contentRef.current.innerHTML) : '';
           await onSave(
+              plan?.id,
               title,
               content,
               markerIds,
