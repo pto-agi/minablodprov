@@ -54,11 +54,7 @@ const ImportModal: React.FC<Props> = ({ isOpen, onClose, availableMarkers, onSav
       }));
 
       // 2. Call AI proxy (backend)
-      const proxyUrl = getEnv('VITE_AI_IMPORT_PROXY_URL');
-      if (!proxyUrl) {
-        setError('AI-import är inte konfigurerad. Sätt VITE_AI_IMPORT_PROXY_URL och använd en server/proxy.');
-        return;
-      }
+      const proxyUrl = getEnv('VITE_AI_IMPORT_PROXY_URL') || '/api/ai-import';
       
       const prompt = `
         You are a medical data assistant. extract blood test results from the text provided by the user.

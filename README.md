@@ -18,7 +18,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1pQdH9SoDuml34JlaWCT-ll
 2. Create `.env.local` with:
    `VITE_SUPABASE_URL=...`
    `VITE_SUPABASE_ANON_KEY=...`
-   `VITE_AI_IMPORT_PROXY_URL=...` (optional, required for AI-import)
+   `VITE_AI_IMPORT_PROXY_URL=...` (optional; defaults to `/api/ai-import`)
 3. Run the app:
    `npm run dev`
 
@@ -27,3 +27,6 @@ AI-import expects the proxy to accept POST JSON:
 `{ date: "YYYY-MM-DD" | null, results: [{ markerId, value }] }`
 
 Deploy trigger: 2026-02-19
+
+For local AI-import, run via Vercel:
+`vercel dev`
