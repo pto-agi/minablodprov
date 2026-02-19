@@ -30,3 +30,12 @@ Deploy trigger: 2026-02-19
 
 For local AI-import, run via Vercel:
 `vercel dev`
+
+## SEO / Content Pages
+Marker pages are file-based and live in:
+`content/markers/*.md`
+
+Each file becomes a URL:
+`/hemoglobin` -> `content/markers/hemoglobin.md`
+
+The index is available at `/markorer`.
