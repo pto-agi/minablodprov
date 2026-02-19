@@ -11,10 +11,10 @@ const MarkerDoc: React.FC = () => {
       <section className="max-w-3xl mx-auto px-4 py-12">
         <h1 className="text-2xl font-display font-bold text-slate-900">Sidan finns inte</h1>
         <p className="text-sm text-slate-600 mt-2">
-          Vi kunde inte hitta någon markör med denna URL.
+          Vi kunde inte hitta någon artikel med denna URL.
         </p>
-        <Link to="/markorer" className="inline-block mt-4 text-sm font-bold text-slate-900">
-          Tillbaka till markörer
+        <Link to="/artiklar" className="inline-block mt-4 text-sm font-bold text-slate-900">
+          Tillbaka till artiklar
         </Link>
       </section>
     );
@@ -23,7 +23,7 @@ const MarkerDoc: React.FC = () => {
   return (
     <section className="max-w-3xl mx-auto px-4 py-12">
       <div className="text-xs text-slate-500 mb-3">
-        <Link to="/markorer" className="hover:text-slate-900">Markörer</Link> / {doc.slug}
+        <Link to="/artiklar" className="hover:text-slate-900">Artiklar</Link> / {doc.slug}
       </div>
       <article
         className="prose prose-slate max-w-none bg-white rounded-2xl ring-1 ring-slate-200 p-6"

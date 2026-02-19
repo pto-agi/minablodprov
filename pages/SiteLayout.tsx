@@ -12,8 +12,8 @@ const SiteLayout: React.FC = () => {
             <span className="text-sm font-bold text-slate-900">minablodprov.se</span>
           </Link>
           <nav className="flex items-center gap-4 text-sm font-semibold text-slate-600">
-            <Link to="/markorer" className="hover:text-slate-900">Markörer</Link>
-            <Link to="/app" className="px-3 py-1.5 rounded-full bg-slate-900 text-white">Logga in</Link>
+            <Link to="/artiklar" className="hover:text-slate-900">Artiklar</Link>
+            <Link to="/app" className="px-3 py-1.5 rounded-full bg-slate-900 text-white">Till appen</Link>
           </nav>
         </div>
       </header>

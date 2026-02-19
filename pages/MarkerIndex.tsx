@@ -6,10 +6,9 @@ const MarkerIndex: React.FC = () => {
   return (
     <section className="max-w-6xl mx-auto px-4 py-10">
       <div className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-display font-bold text-slate-900">Markörer</h1>
+        <h1 className="text-2xl md:text-3xl font-display font-bold text-slate-900">Artiklar</h1>
         <p className="text-sm text-slate-600 mt-2">
-          Utforska våra informationssidor för varje markör. Nya sidor kan läggas till som filer i
-          `content/markers`.
+          Utforska våra informationssidor. Nya sidor kan läggas till som filer i `content/markers`.
         </p>
       </div>
 
@@ -17,7 +16,7 @@ const MarkerIndex: React.FC = () => {
         {markerDocs.map((doc) => (
           <Link
             key={doc.slug}
-            to={`/${doc.slug}`}
+            to={`/artiklar/${doc.slug}`}
             className="rounded-2xl bg-white ring-1 ring-slate-200 p-5 hover:ring-slate-300 transition-shadow"
           >
             <div className="text-sm font-bold text-slate-900">{doc.title}</div>
