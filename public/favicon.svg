@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="minablodprov.se">
+  <title>minablodprov.se</title>
+  <g fill="none" stroke="#0f172a" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 20
+             C128 20 64 92 64 140
+             C64 184 93 220 128 220
+             C163 220 192 184 192 140
+             C192 92 128 20 128 20Z"/>
+    <path d="M88 158 L116 132 L140 148 L172 110"/>
+    <circle cx="88" cy="158" r="4"/>
+    <circle cx="116" cy="132" r="4"/>
+    <circle cx="140" cy="148" r="4"/>
+    <circle cx="172" cy="110" r="4"/>
+    <circle cx="170" cy="112" r="26"/>
+    <path d="M189 131 L206 148"/>
+  </g>
+</svg>
