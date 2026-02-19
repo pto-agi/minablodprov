@@ -25,3 +25,5 @@ View your app in AI Studio: https://ai.studio/apps/drive/1pQdH9SoDuml34JlaWCT-ll
 AI-import expects the proxy to accept POST JSON:
 `{ prompt, text, markers }` and return:
 `{ date: "YYYY-MM-DD" | null, results: [{ markerId, value }] }`
+
+Deploy trigger: 2026-02-19
