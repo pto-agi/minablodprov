@@ -1,13 +1,5 @@
-import React, { Suspense } from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import SiteLayout from './pages/SiteLayout';
-import MarketingHome from './pages/MarketingHome';
-import MarkerIndex from './pages/MarkerIndex';
-import MarkerDoc from './pages/MarkerDoc';
-import NotFound from './pages/NotFound';
-
-const App = React.lazy(() => import('./App'));
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -30,28 +22,12 @@ const ErrorScreen = ({ error }: { error: unknown }) => (
   </div>
 );
 
-const AppRoute = () => (
-  <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
-    <App />
-  </Suspense>
-);
-
 const bootstrap = async () => {
   try {
+    const { default: App } = await import('./App');
     root.render(
       <React.StrictMode>
-        <BrowserRouter>
-          <Routes>
-            <Route element={<SiteLayout />}>
-              <Route index element={<MarketingHome />} />
-              <Route path="/markorer" element={<MarkerIndex />} />
-              <Route path="/:slug" element={<MarkerDoc />} />
-            </Route>
-            <Route path="/app/*" element={<AppRoute />} />
-            <Route path="*" element={<NotFound />} />
-            <Route path="/home" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
+        <App />
       </React.StrictMode>
     );
   } catch (err) {
