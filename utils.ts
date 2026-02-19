@@ -43,6 +43,23 @@ export const formatNumber = (value: number | undefined | null, maxDecimals: numb
   }).format(value);
 };
 
+// Parse date strings in a timezone-safe way.
+// For date-only strings (YYYY-MM-DD), construct a local date to avoid UTC shifts.
+export const parseDate = (dateString: string): Date => {
+  const s = (dateString ?? '').trim();
+  if (!s) return new Date('');
+
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const d = Number(m[3]);
+    return new Date(y, mo, d);
+  }
+
+  return new Date(s);
+};
+
 export const computeDelta = (measurements: Measurement[]) => {
   // Expects latest-first sorting
   if (!measurements || measurements.length < 2) return null;
@@ -53,7 +70,7 @@ export const computeDelta = (measurements: Measurement[]) => {
 };
 
 export const formatDate = (dateString: string): string => {
-  const d = new Date(dateString);
+  const d = parseDate(dateString);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('sv-SE', {
     year: 'numeric',
@@ -63,7 +80,7 @@ export const formatDate = (dateString: string): string => {
 };
 
 export const formatDateTime = (dateString: string): string => {
-  const d = new Date(dateString);
+  const d = parseDate(dateString);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleString('sv-SE', {
     year: 'numeric',

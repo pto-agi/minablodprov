@@ -1,8 +1,6 @@
 
 import React, { useState } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { BloodMarker } from '../types';
-import { formatNumber } from '../utils';
 
 interface Props {
   isOpen: boolean;
@@ -20,6 +18,14 @@ interface ParsedResult {
 }
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+const getEnv = (key: string) => {
+  try {
+    // @ts-ignore
+    return (import.meta as any)?.env?.[key] || '';
+  } catch {
+    return '';
+  }
+};
 
 const ImportModal: React.FC<Props> = ({ isOpen, onClose, availableMarkers, onSave }) => {
   const [text, setText] = useState('');
@@ -47,8 +53,12 @@ const ImportModal: React.FC<Props> = ({ isOpen, onClose, availableMarkers, onSav
         unit: m.unit
       }));
 
-      // 2. Call Gemini
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // 2. Call AI proxy (backend)
+      const proxyUrl = getEnv('VITE_AI_IMPORT_PROXY_URL');
+      if (!proxyUrl) {
+        setError('AI-import är inte konfigurerad. Sätt VITE_AI_IMPORT_PROXY_URL och använd en server/proxy.');
+        return;
+      }
       
       const prompt = `
         You are a medical data assistant. extract blood test results from the text provided by the user.
@@ -70,21 +80,21 @@ const ImportModal: React.FC<Props> = ({ isOpen, onClose, availableMarkers, onSav
         5. Handle Swedish decimal commas (replace with dot).
       `;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: [
-            { text: prompt },
-            { text: `Analyze this text:\n\n${text}` }
-        ],
-        config: {
-            responseMimeType: "application/json"
-        }
+      const response = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          text,
+          markers: markersContext
+        })
       });
 
-      const rawJson = response.text;
-      if (!rawJson) throw new Error("No response from AI");
+      if (!response.ok) {
+        throw new Error(`AI proxy failed (${response.status})`);
+      }
 
-      const data = JSON.parse(rawJson);
+      const data = await response.json();
 
       // 3. Map back to our UI structure
       if (data.date) {
@@ -116,7 +126,7 @@ const ImportModal: React.FC<Props> = ({ isOpen, onClose, availableMarkers, onSav
       if (err.status === 429 || err.code === 429 || err.message?.includes('429') || err.toString().includes('429')) {
         setError("AI-tjänsten är tillfälligt överbelastad (429). Försök igen om en stund eller fyll i värdena manuellt.");
       } else {
-        setError("Något gick fel vid analysen. Kontrollera din API-nyckel eller försök igen.");
+        setError("Något gick fel vid analysen. Kontrollera din AI-proxy eller försök igen.");
       }
     } finally {
       setAnalyzing(false);

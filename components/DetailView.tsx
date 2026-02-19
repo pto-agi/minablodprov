@@ -1,7 +1,7 @@
 
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { MarkerHistory, MeasurementTodo, BloodMarker } from '../types';
-import { formatDateTime, formatDate, formatNumber } from '../utils';
+import { formatDateTime, formatDate, formatNumber, parseDate } from '../utils';
 import HistoryChart from './HistoryChart';
 import ReferenceVisualizer from './ReferenceVisualizer';
 import ActionList from './ActionList'; // Import reused component
@@ -172,7 +172,7 @@ const DetailView: React.FC<Props> = ({
 
   // Data processing
   const sortedMeasurements = useMemo(() => 
-    [...(data.measurements || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [...(data.measurements || [])].sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime()),
   [data.measurements]);
 
   const latest = sortedMeasurements[0] ?? null;
@@ -182,7 +182,7 @@ const DetailView: React.FC<Props> = ({
     const events: Array<{ type: 'measurement' | 'note', date: string, id: string, data: any }> = [];
     sortedMeasurements.forEach(m => events.push({ type: 'measurement', date: m.date, id: m.id, data: m }));
     data.notes?.forEach(n => events.push({ type: 'note', date: n.date, id: n.id, data: n }));
-    return events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return events.sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
   }, [sortedMeasurements, data.notes]);
 
   const chartData = useMemo(() => {
@@ -193,7 +193,7 @@ const DetailView: React.FC<Props> = ({
     if (chartRange === '3m') cutoff.setMonth(now.getMonth() - 3);
     if (chartRange === '6m') cutoff.setMonth(now.getMonth() - 6);
     if (chartRange === '1y') cutoff.setFullYear(now.getFullYear() - 1);
-    return sortedMeasurements.filter(m => new Date(m.date) >= cutoff).reverse();
+    return sortedMeasurements.filter(m => parseDate(m.date) >= cutoff).reverse();
   }, [sortedMeasurements, chartRange]);
 
   const trend = useMemo(() => {

@@ -1,6 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { MarkerHistory, ActionableTodo, StatsHistoryEntry, MeasurementTodo, BloodMarker } from '../types';
+import { parseDate } from '../utils';
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import ActionList from './ActionList';
 
@@ -107,11 +108,11 @@ const StatsOverview: React.FC<Props> = ({
 
   // Prepare chart data (sort chronological)
   const chartData = useMemo(() => {
-    const sorted = [...history].sort((a, b) => new Date(a.log_date).getTime() - new Date(b.log_date).getTime());
+    const sorted = [...history].sort((a, b) => parseDate(a.log_date).getTime() - parseDate(b.log_date).getTime());
     return sorted.map(h => ({
       date: h.log_date,
       score: h.score,
-      label: new Date(h.log_date).toLocaleDateString('sv-SE', { month: 'short' })
+      label: parseDate(h.log_date).toLocaleDateString('sv-SE', { month: 'short' })
     }));
   }, [history]);
 

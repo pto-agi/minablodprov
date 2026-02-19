@@ -1,7 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { OptimizationEvent } from '../types';
-import { formatDate, formatNumber } from '../utils';
+import { formatDate, formatNumber, parseDate } from '../utils';
 
 interface Props {
   isOpen: boolean;
@@ -13,7 +13,7 @@ const cx = (...classes: Array<string | false | null | undefined>) => classes.fil
 
 const OptimizedListModal: React.FC<Props> = ({ isOpen, onClose, events }) => {
   const sortedEvents = useMemo(
-    () => [...events].sort((a, b) => new Date(b.goodDate).getTime() - new Date(a.goodDate).getTime()),
+    () => [...events].sort((a, b) => parseDate(b.goodDate).getTime() - parseDate(a.goodDate).getTime()),
     [events],
   );
 

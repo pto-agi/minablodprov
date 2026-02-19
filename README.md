@@ -15,6 +15,13 @@ View your app in AI Studio: https://ai.studio/apps/drive/1pQdH9SoDuml34JlaWCT-ll
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Create `.env.local` with:
+   `VITE_SUPABASE_URL=...`
+   `VITE_SUPABASE_ANON_KEY=...`
+   `VITE_AI_IMPORT_PROXY_URL=...` (optional, required for AI-import)
 3. Run the app:
    `npm run dev`
+
+AI-import expects the proxy to accept POST JSON:
+`{ prompt, text, markers }` and return:
+`{ date: "YYYY-MM-DD" | null, results: [{ markerId, value }] }`

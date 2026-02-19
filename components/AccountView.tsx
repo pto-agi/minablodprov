@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { BloodMarker, MarkerNote, Measurement } from '../types';
-import { formatDateTime, formatNumber, getStatus } from '../utils';
+import { formatDateTime, formatNumber, getStatus, parseDate } from '../utils';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../supabaseClient';
 
@@ -69,7 +69,7 @@ const AccountView: React.FC<Props> = ({
     }
 
     // Sort descending (newest first)
-    return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return combined.sort((a, b) => parseDate(b.date).getTime() - parseDate(a.date).getTime());
   }, [measurements, notes, markers]);
 
   const handleUpdatePassword = async () => {

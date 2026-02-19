@@ -11,7 +11,7 @@ import {
   JournalGoal,
   StatsHistoryEntry,
 } from './types';
-import { getStatus, safeFloat, formatNumber } from './utils';
+import { getStatus, safeFloat, formatNumber, parseDate } from './utils';
 import BloodMarkerCard from './components/BloodMarkerCard';
 import DetailView from './components/DetailView';
 import NewMeasurementModal from './components/NewMeasurementModal';
@@ -37,7 +37,7 @@ type SortMode = 'attention' | 'recent' | 'az';
 
 const ts = (iso?: string | null) => {
   if (!iso) return 0;
-  const d = new Date(iso);
+  const d = parseDate(iso);
   const t = d.getTime();
   return Number.isFinite(t) ? t : 0;
 };
@@ -329,9 +329,7 @@ const App: React.FC = () => {
           notesRes, 
           todosRes, 
           journalRes, 
-          journalMarkersRes, 
           settingsRes, 
-          goalsRes,
           historyRes // NEW
       ] = await Promise.all([
         supabase.from('blood_markers').select('*'),
@@ -340,9 +338,7 @@ const App: React.FC = () => {
         supabase.from('measurement_todos').select('*').eq('user_id', userId).order('created_at', { ascending: true }),
         // We fetch plans ordered by updated_at to easily determine the "Active" one
         supabase.from('journal_entries').select('*').eq('user_id', userId).order('updated_at', { ascending: false }),
-        supabase.from('journal_entry_markers').select('*'), 
         supabase.from('user_marker_settings').select('*').eq('user_id', userId),
-        supabase.from('journal_goals').select('*'),
         supabase.from('user_stats_history').select('*').eq('user_id', userId).order('log_date', { ascending: true }) // NEW
       ]);
 
@@ -352,7 +348,6 @@ const App: React.FC = () => {
       const notesOk = !notesRes.error;
       const todosOk = !todosRes.error;
       const journalOk = !journalRes.error;
-      const goalsOk = !goalsRes.error;
       const settingsOk = !settingsRes.error;
       const historyOk = !historyRes.error;
 
@@ -361,7 +356,10 @@ const App: React.FC = () => {
       if (notesRes.error) missing.push(`marker_notes (${notesRes.error.message})`);
       if (todosRes.error) missing.push(`measurement_todos (${todosRes.error.message})`);
       // Journal table might be missing entirely if migration not run, suppress error if so for now but track it
-      if (journalRes.error) console.warn("Journal table missing:", journalRes.error.message);
+      if (journalRes.error) {
+        console.warn("Journal table missing:", journalRes.error.message);
+        missing.push(`journal_entries (${journalRes.error.message})`);
+      }
       if (historyRes.error) console.warn("History table missing:", historyRes.error.message);
 
       const markersData = markersRes.data ?? [];
@@ -369,10 +367,28 @@ const App: React.FC = () => {
       const notesData = notesOk ? (notesRes.data ?? []) : [];
       const todosData = todosOk ? (todosRes.data ?? []) : [];
       const journalData = journalOk ? (journalRes.data ?? []) : [];
-      const journalMarkersData = journalMarkersRes.data ?? [];
       const settingsData = settingsOk ? (settingsRes.data ?? []) : [];
-      const goalsData = goalsOk ? (goalsRes.data ?? []) : [];
       const historyData = historyOk ? (historyRes.data ?? []) : [];
+
+      // Fetch journal relations only for the user's plans
+      const journalIds = journalData.map((j: any) => j.id).filter(Boolean);
+      let journalMarkersRes = { data: [], error: null as any };
+      let goalsRes = { data: [], error: null as any };
+      if (journalIds.length > 0) {
+        [journalMarkersRes, goalsRes] = await Promise.all([
+          supabase.from('journal_entry_markers').select('*').in('journal_id', journalIds),
+          supabase.from('journal_goals').select('*').in('journal_id', journalIds),
+        ]);
+      }
+
+      const journalMarkersOk = !journalMarkersRes.error;
+      const goalsOk = !goalsRes.error;
+
+      if (journalMarkersRes.error) missing.push(`journal_entry_markers (${journalMarkersRes.error.message})`);
+      if (goalsRes.error) missing.push(`journal_goals (${goalsRes.error.message})`);
+
+      const journalMarkersData = journalMarkersOk ? (journalMarkersRes.data ?? []) : [];
+      const goalsData = goalsOk ? (goalsRes.data ?? []) : [];
 
       const mappedMarkers: BloodMarker[] = markersData.map((m: any) => {
         const minRef = safeFloat(m.min_ref);

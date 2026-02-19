@@ -1,7 +1,8 @@
 
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import { JournalPlan, MarkerHistory, MeasurementTodo, JournalGoal } from '../types';
-import { formatDate, formatNumber } from '../utils';
+import { formatDate, formatNumber, parseDate } from '../utils';
 import ActionList from './ActionList';
 
 interface Props {
@@ -30,12 +31,28 @@ interface Props {
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 
+const purifier = DOMPurify;
+purifier.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A') {
+    if (!node.getAttribute('target')) node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer');
+  }
+});
+
+const ALLOWED_TAGS = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'a'];
+const ALLOWED_ATTR = ['href', 'target', 'rel'];
+
+function sanitizeHtmlSafe(html: string): string {
+  if (!html) return '';
+  return purifier.sanitize(html, { ALLOWED_TAGS, ALLOWED_ATTR });
+}
+
 // Helper to render HTML safely
 function Markup({ content }: { content: string }) {
   return (
     <div 
       className="prose prose-slate prose-sm sm:prose-base max-w-none text-slate-600 leading-relaxed"
-      dangerouslySetInnerHTML={{ __html: content }} 
+      dangerouslySetInnerHTML={{ __html: sanitizeHtmlSafe(content) }} 
     />
   );
 }
@@ -43,18 +60,7 @@ function Markup({ content }: { content: string }) {
 const todayLocalISO = () => new Date().toLocaleDateString('en-CA');
 
 function sanitizeHtmlUnsafe(html: string): string {
-  if (!html) return '';
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const blockedTags = ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'form', 'input', 'button', 'textarea', 'select', 'option', 'svg'];
-    for (const tag of blockedTags) {
-      doc.querySelectorAll(tag).forEach(el => el.remove());
-    }
-    return doc.body.innerHTML;
-  } catch {
-    return String(html).replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
-  }
+  return sanitizeHtmlSafe(html);
 }
 
 function normalizeOptionalDate(v: string): string | undefined {
@@ -319,7 +325,7 @@ const ActivePlanView: React.FC<Props> = ({
 
   // Calculate days left
   let daysLeft = null;
-  const targetDateObj = plan.targetDate ? new Date(plan.targetDate) : null;
+  const targetDateObj = plan.targetDate ? parseDate(plan.targetDate) : null;
   if (targetDateObj) {
       const diff = targetDateObj.getTime() - new Date().getTime();
       daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));

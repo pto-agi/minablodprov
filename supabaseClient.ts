@@ -15,8 +15,12 @@ const getEnv = (key: string) => {
   return '';
 };
 
-// Use the helper to get keys, falling back to placeholders if missing
-const supabaseUrl = getEnv('VITE_SUPABASE_URL') || 'https://eqdzqkyldkfckptholdk.supabase.co';
-const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxZHpxa3lsZGtmY2twdGhvbGRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1NjUzODIsImV4cCI6MjA4NjE0MTM4Mn0.9KRvj9Saw4Zg_fCBzpoTbV9pJUOSnERAdbczrtJCvb0';
+// Require explicit env vars to avoid accidental cross-environment connections
+const supabaseUrl = getEnv('VITE_SUPABASE_URL');
+const supabaseAnonKey = getEnv('VITE_SUPABASE_ANON_KEY');
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase configuration. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

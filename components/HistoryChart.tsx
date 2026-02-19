@@ -12,7 +12,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Measurement } from '../types';
-import { formatDate, formatDateTime, formatNumber, getStatus } from '../utils';
+import { formatDate, formatDateTime, formatNumber, getStatus, parseDate } from '../utils';
 
 interface Props {
   measurements: Measurement[];
@@ -27,7 +27,7 @@ const HistoryChart: React.FC<Props> = ({ measurements, minRef, maxRef, unit }) =
   const chartData = useMemo(() => {
     const sorted = [...measurements]
       .map((m) => {
-        const t = new Date(m.date).getTime();
+        const t = parseDate(m.date).getTime();
         return Number.isFinite(t) ? { ...m, t } : null;
       })
       .filter(Boolean) as Array<Measurement & { t: number }>;

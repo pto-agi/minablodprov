@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { MeasurementTodo, BloodMarker } from '../types';
+import { parseDate } from '../utils';
 
 interface Props {
   todos: MeasurementTodo[];
@@ -21,7 +22,7 @@ const cx = (...classes: Array<string | false | null | undefined>) => classes.fil
 
 const formatDueDate = (dateStr: string) => {
   if (!dateStr) return '';
-  const d = new Date(dateStr);
+  const d = parseDate(dateStr);
   const now = new Date();
   const isThisYear = d.getFullYear() === now.getFullYear();
   return d.toLocaleDateString('sv-SE', { 
@@ -253,7 +254,7 @@ const ActionItem: React.FC<{
                  {todo.dueDate && (
                    <span className={cx(
                      "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wide",
-                     new Date(todo.dueDate) < new Date() && !todo.done ? "bg-rose-50 text-rose-700 border-rose-100" : "bg-slate-50 text-slate-500 border-slate-200"
+                     (todo.dueDate && parseDate(todo.dueDate) < new Date() && !todo.done) ? "bg-rose-50 text-rose-700 border-rose-100" : "bg-slate-50 text-slate-500 border-slate-200"
                    )}>
                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                      {formatDueDate(todo.dueDate)}
@@ -371,7 +372,13 @@ const ActionList: React.FC<Props> = ({
   const { activeTodos, completedTodos } = useMemo(() => {
     return {
       activeTodos: todos.filter(t => !t.done),
-      completedTodos: todos.filter(t => t.done).sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
+      completedTodos: todos
+        .filter(t => t.done)
+        .sort((a, b) => {
+          const bt = parseDate(b.updatedAt || '').getTime();
+          const at = parseDate(a.updatedAt || '').getTime();
+          return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0);
+        })
     };
   }, [todos]);
 
