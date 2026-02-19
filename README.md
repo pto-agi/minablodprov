@@ -36,6 +36,6 @@ Marker pages are file-based and live in:
 `content/markers/*.md`
 
 Each file becomes a URL:
-`/artiklar/hemoglobin` -> `content/markers/hemoglobin.md`
+`/hemoglobin` -> `content/markers/hemoglobin.md`
 
-The index is available at `/artiklar`.
+The index is available at `/markorer`.

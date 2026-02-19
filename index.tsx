@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import SiteLayout from './pages/SiteLayout';
+import MarketingHome from './pages/MarketingHome';
 import MarkerIndex from './pages/MarkerIndex';
 import MarkerDoc from './pages/MarkerDoc';
 import NotFound from './pages/NotFound';
@@ -41,13 +42,14 @@ const bootstrap = async () => {
       <React.StrictMode>
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Navigate to="/app" replace />} />
-            <Route path="/app/*" element={<AppRoute />} />
-            <Route path="/artiklar" element={<SiteLayout />}>
-              <Route index element={<MarkerIndex />} />
-              <Route path=":slug" element={<MarkerDoc />} />
+            <Route element={<SiteLayout />}>
+              <Route index element={<MarketingHome />} />
+              <Route path="/markorer" element={<MarkerIndex />} />
+              <Route path="/:slug" element={<MarkerDoc />} />
             </Route>
+            <Route path="/app/*" element={<AppRoute />} />
             <Route path="*" element={<NotFound />} />
+            <Route path="/home" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </React.StrictMode>

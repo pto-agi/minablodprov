@@ -11,7 +11,6 @@ interface Props {
   onRefresh?: () => Promise<void> | void;
   onSignOut?: () => Promise<void> | void;
   onOpenTimeline?: () => void;
-  articlesHref?: string;
 }
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
@@ -43,8 +42,7 @@ const Header: React.FC<Props> = ({
   activeTab, 
   onNavigate, 
   loading, 
-  onRefresh,
-  articlesHref
+  onRefresh
 }) => {
   
   const navItems: { id: NavTab; label: string }[] = [
@@ -103,14 +101,6 @@ const Header: React.FC<Props> = ({
 
         {/* RIGHT ACTIONS */}
         <div className="flex items-center justify-end gap-2 shrink-0">
-          {articlesHref && (
-            <a
-              href={articlesHref}
-              className="hidden sm:inline-flex items-center px-3 py-2 rounded-full text-xs font-bold bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:text-slate-900"
-            >
-              Artiklar
-            </a>
-          )}
           {onRefresh && (
              <button
                 onClick={onRefresh}

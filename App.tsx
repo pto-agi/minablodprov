@@ -1392,15 +1392,14 @@ const App: React.FC = () => {
     // Use a layout wrapper even for DetailView to maintain global header
     return (
       <div className="flex flex-col min-h-screen bg-slate-50">
-      <Header 
-        activeTab={activeTab}
-        onNavigate={handleNavigation}
-        onRefresh={handleRefresh} 
-        loading={loadingData}
-        onSignOut={handleSignOut}
-        onOpenTimeline={() => { /* No-op in header, timeline is in Account */ }}
-        articlesHref="/artiklar"
-      />
+        <Header 
+          activeTab={activeTab}
+          onNavigate={handleNavigation}
+          onRefresh={handleRefresh} 
+          loading={loadingData}
+          onSignOut={handleSignOut}
+          onOpenTimeline={() => { /* No-op in header, timeline is in Account */ }}
+        />
         <main className="flex-1 pt-16">
           <DetailView
             data={selectedMarkerData}
@@ -1460,7 +1459,6 @@ const App: React.FC = () => {
         loading={loadingData} 
         onOpenTimeline={() => { /* No-op */ }}
         onSignOut={handleSignOut}
-        articlesHref="/artiklar"
       />
 
       <main className="flex-1 max-w-6xl mx-auto px-4 pt-24 pb-12 w-full relative z-10" id="marker-list-top">
